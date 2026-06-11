@@ -1,8 +1,20 @@
-# Gestão de Condomínio
+# 🏢 Gestão de Condomínio
 
-Sistema web para gestão de condomínio: recibos (com leitura automática por OCR e exportação),
-fornecedores, serviços, obras com cronograma (Gantt) e análise de atrasos, e controle de
-usuários/permissões.
+Sistema web completo para gestão de condomínio: **recibos** (com leitura automática por OCR e
+exportação), **contas fixas**, **fornecedores/serviços**, **obras** com cronograma (Gantt) e análise
+de atrasos, **manutenção** (OS), **eventos** e reserva de espaços, **relatórios em PDF**,
+**assistente de IA**, **notificações**, **auditoria** e controle de usuários/permissões.
+
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
+![Auth.js](https://img.shields.io/badge/Auth.js-5-000000?logo=auth0&logoColor=white)
+
+> ⚠️ **Privacidade:** o banco (`prisma/dev.db`), o `.env` e os arquivos enviados **não** ficam no
+> repositório — veja o `.gitignore`. As chaves de IA são cadastradas em **Configurações** e guardadas
+> apenas no banco, nunca no código.
 
 ## Tecnologias
 - **Next.js 16** (App Router) + TypeScript
