@@ -1,0 +1,317 @@
+// Prisma schema — Gestão de Condomínio
+// Banco local: SQLite. Para nuvem, troque provider para "postgresql".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Papel {
+  ADMIN
+  GESTOR
+  USUARIO
+}
+
+enum StatusRecibo {
+  PENDENTE
+  CONFERIDO
+}
+
+enum StatusObra {
+  PLANEJADA
+  EM_ANDAMENTO
+  CONCLUIDA
+  ATRASADA
+}
+
+enum Prioridade {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum StatusOS {
+  ABERTA
+  EM_ANDAMENTO
+  CONCLUIDA
+  CANCELADA
+}
+
+enum StatusSubOS {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDA
+}
+
+enum StatusEvento {
+  AGENDADO
+  CONCLUIDO
+  CANCELADO
+}
+
+model User {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String   @unique
+  senhaHash String
+  papel     Papel    @default(USUARIO)
+  ativo     Boolean  @default(true)
+  recebeNotificacoes Boolean @default(false)
+  podeUsarIA Boolean @default(false)
+  criadoEm  DateTime @default(now())
+
+  recibos        Recibo[] @relation("RecibosCriados")
+  obrasResponsavel Obra[] @relation("ObrasResponsavel")
+  conversas      Conversa[] @relation("ConversasCriadas")
+  ordensResponsavel OrdemServico[] @relation("OSResponsavel")
+  ordensCriadas     OrdemServico[] @relation("OSCriadas")
+  recorrencias   Recorrencia[] @relation("RecorrenciasCriadas")
+  notificacoes   Notificacao[]
+  eventosResponsavel Evento[] @relation("EventosResp")
+  eventosCriados     Evento[] @relation("EventosCriados")
+}
+
+model Notificacao {
+  id         String   @id @default(cuid())
+  tipo       String   // OS_ATRASADA | OBRA_ATRASADA | ORCAMENTO_ESTOURADO | CONTA_FIXA_PENDENTE
+  titulo     String
+  mensagem   String
+  link       String?
+  entidadeId String?
+  lida       Boolean  @default(false)
+  criadoEm   DateTime @default(now())
+
+  usuarioId String
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, lida])
+  @@index([usuarioId, tipo, entidadeId])
+}
+
+model Fornecedor {
+  id          String   @id @default(cuid())
+  nome        String
+  cnpjCpf     String?
+  telefone    String?
+  email       String?
+  endereco    String?
+  observacoes String?
+  criadoEm    DateTime @default(now())
+
+  servicos Servico[]
+  recibos  Recibo[]
+  ordens   OrdemServico[]
+  recorrencias Recorrencia[]
+}
+
+model Servico {
+  id           String   @id @default(cuid())
+  nome         String
+  descricao    String?
+  valorPadrao  Float?
+  unidade      String?
+  criadoEm     DateTime @default(now())
+
+  fornecedorId String
+  fornecedor   Fornecedor @relation(fields: [fornecedorId], references: [id], onDelete: Cascade)
+}
+
+model Recibo {
+  id             String       @id @default(cuid())
+  categoria      String
+  descricao      String?
+  valor          Float
+  dataEmissao    DateTime
+  arquivoUrl     String?
+  textoExtraido  String?
+  dadosExtraidos String?      // JSON com campos detectados pelo OCR
+  status         StatusRecibo @default(PENDENTE)
+  criadoEm       DateTime     @default(now())
+
+  fornecedorId String?
+  fornecedor   Fornecedor? @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+
+  obraId String?
+  obra   Obra?  @relation(fields: [obraId], references: [id], onDelete: SetNull)
+
+  recorrenciaId String?
+  recorrencia   Recorrencia? @relation(fields: [recorrenciaId], references: [id], onDelete: SetNull)
+
+  criadoPorId  String
+  criadoPor    User        @relation("RecibosCriados", fields: [criadoPorId], references: [id])
+}
+
+model Recorrencia {
+  id              String   @id @default(cuid())
+  descricao       String
+  categoria       String
+  valor           Float
+  diaVencimento   Int      @default(10) // 1-28
+  ativo           Boolean  @default(true)
+  ultimoMesGerado String?  // "AAAA-MM" do último recibo gerado
+  criadoEm        DateTime @default(now())
+
+  fornecedorId String?
+  fornecedor   Fornecedor? @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+
+  criadoPorId String
+  criadoPor   User   @relation("RecorrenciasCriadas", fields: [criadoPorId], references: [id])
+
+  recibos Recibo[]
+}
+
+model Obra {
+  id             String     @id @default(cuid())
+  titulo         String
+  descricao      String?
+  orcamento      Float?
+  dataInicioPrev DateTime
+  dataFimPrev    DateTime
+  status         StatusObra @default(PLANEJADA)
+  criadoEm       DateTime   @default(now())
+
+  responsavelId String?
+  responsavel   User?    @relation("ObrasResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  etapas  EtapaObra[]
+  recibos Recibo[]
+}
+
+model Conversa {
+  id          String       @id @default(cuid())
+  titulo      String
+  provedor    String
+  criadoEm    DateTime     @default(now())
+  atualizadoEm DateTime    @updatedAt
+
+  criadoPorId String
+  criadoPor   User         @relation("ConversasCriadas", fields: [criadoPorId], references: [id], onDelete: Cascade)
+
+  mensagens   MensagemIA[]
+}
+
+model MensagemIA {
+  id         String   @id @default(cuid())
+  role       String   // "user" | "assistant"
+  content    String
+  arquivoUrl String?
+  criadoEm   DateTime @default(now())
+
+  conversaId String
+  conversa   Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+}
+
+model Configuracao {
+  id             String   @id @default("default")
+  nomeCondominio String   @default("Condomínio")
+
+  // Integração com IAs (chaves ficam apenas no servidor)
+  claudeApiKey   String?
+  claudeModelo   String   @default("claude-sonnet-4-6")
+  geminiApiKey   String?
+  geminiModelo   String   @default("gemini-2.5-flash")
+  openaiApiKey   String?
+  openaiModelo   String   @default("gpt-4o-mini")
+
+  // Antecedência (em horas) para avisar o responsável sobre eventos próximos
+  horasAvisoEvento Int    @default(48)
+
+  atualizadoEm   DateTime @updatedAt
+}
+
+model EtapaObra {
+  id         String    @id @default(cuid())
+  nome       String
+  inicioPrev DateTime
+  fimPrev    DateTime
+  inicioReal DateTime?
+  fimReal    DateTime?
+  progresso  Int       @default(0) // 0-100
+  ordem      Int       @default(0)
+
+  obraId String
+  obra   Obra   @relation(fields: [obraId], references: [id], onDelete: Cascade)
+}
+
+model OrdemServico {
+  id            String     @id @default(cuid())
+  numero        Int        @unique
+  titulo        String
+  tipo          String     @default("Geral")
+  descricao     String?
+  local         String?
+  prioridade    Prioridade @default(MEDIA)
+  status        StatusOS   @default(ABERTA)
+  custo         Float?
+  dataAbertura  DateTime   @default(now())
+  dataPrevista  DateTime?
+  dataConclusao DateTime?
+  criadoEm      DateTime   @default(now())
+
+  fornecedorId String?
+  fornecedor   Fornecedor? @relation(fields: [fornecedorId], references: [id], onDelete: SetNull)
+
+  responsavelId String?
+  responsavel   User?   @relation("OSResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  criadoPorId String
+  criadoPor   User   @relation("OSCriadas", fields: [criadoPorId], references: [id])
+
+  subOrdens SubOrdemServico[]
+}
+
+model SubOrdemServico {
+  id          String      @id @default(cuid())
+  titulo      String
+  descricao   String?
+  status      StatusSubOS @default(PENDENTE)
+  custo       Float?
+  ordem       Int         @default(0)
+  concluidaEm DateTime?
+  criadoEm    DateTime    @default(now())
+
+  ordemId String
+  os      OrdemServico @relation(fields: [ordemId], references: [id], onDelete: Cascade)
+}
+
+model Evento {
+  id          String       @id @default(cuid())
+  titulo      String
+  tipo        String       @default("Outro")
+  descricao   String?
+  local       String?
+  dataInicio  DateTime
+  dataFim     DateTime
+  reservante  String?      // nome / unidade de quem reservou (para reservas de espaço)
+  status      StatusEvento @default(AGENDADO)
+  criadoEm    DateTime     @default(now())
+
+  responsavelId String?
+  responsavel   User?   @relation("EventosResp", fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  criadoPorId String
+  criadoPor   User   @relation("EventosCriados", fields: [criadoPorId], references: [id])
+
+  @@index([dataInicio])
+  @@index([local])
+}
+
+/// Rastreabilidade: registra todas as ações nos processos (quem, o quê, quando).
+model Auditoria {
+  id          String   @id @default(cuid())
+  usuarioId   String?
+  usuarioNome String   // snapshot do nome (preserva o histórico mesmo se o usuário for excluído)
+  acao        String   // CRIOU | EDITOU | EXCLUIU | CONCLUIU | ...
+  entidade    String   // OS | Sub-OS | Recibo | Obra | Etapa | Fornecedor | Serviço | Usuário | Configuração
+  entidadeId  String?
+  detalhe     String?
+  criadoEm    DateTime @default(now())
+
+  @@index([entidade, entidadeId])
+  @@index([criadoEm])
+}

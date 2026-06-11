@@ -1,26 +1,76 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f1f3f5;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --ring: #93c5fd;
+}
+
+.dark {
+  --background: #0b1120;
+  --surface: #111827;
+  --surface-muted: #1e293b;
+  --foreground: #e2e8f0;
+  --muted: #94a3b8;
+  --border: #1f2937;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --ring: #1d4ed8;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --radius: 0.75rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Frappe Gantt dark-mode friendly overrides */
+.gantt .bar-progress { fill: var(--primary); }
+.gantt .bar { fill: var(--surface-muted); stroke: var(--border); }
+.gantt .bar-label { fill: var(--foreground); font-size: 12px; }
+.gantt .grid-header { fill: var(--surface); stroke: var(--border); }
+.gantt .grid-row { fill: var(--surface); }
+.gantt .grid-row:nth-child(even) { fill: var(--surface-muted); }
+.gantt .tick { stroke: var(--border); }
+.gantt .today-highlight { fill: var(--warning); opacity: 0.12; }
+.gantt .lower-text, .gantt .upper-text { fill: var(--muted); }
