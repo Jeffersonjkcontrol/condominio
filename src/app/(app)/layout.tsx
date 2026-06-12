@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { Building2 } from "lucide-react";
 import { auth } from "@/auth";
 import { Sidebar } from "@/components/sidebar";
+import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import { NotificationBell } from "@/components/notification-bell";
@@ -68,10 +68,7 @@ export default async function AppLayout({
       {/* Sidebar */}
       <aside className="hidden w-64 shrink-0 border-r border-border bg-surface lg:flex lg:flex-col">
         <div className="flex h-16 items-center gap-2 border-b border-border px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Building2 className="h-5 w-5" />
-          </div>
-          <span className="font-bold text-foreground">{nomeCondominio}</span>
+          <BrandLogo logoData={config.logoData} nome={nomeCondominio} />
         </div>
         <Sidebar papel={papel} alertas={alertas} podeIA={podeIA} />
       </aside>
@@ -80,8 +77,7 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-4 sm:px-6">
           <div className="lg:hidden flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-primary" />
-            <span className="font-bold text-foreground">{nomeCondominio}</span>
+            <BrandLogo logoData={config.logoData} nome={nomeCondominio} />
           </div>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">

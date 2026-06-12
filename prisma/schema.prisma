@@ -210,6 +210,9 @@ model Configuracao {
   id             String   @id @default("default")
   nomeCondominio String   @default("Condomínio")
 
+  // Logo do condomínio (imagem embutida como data URL base64). Exibido no app e no login.
+  logoData       String?
+
   // Integração com IAs (chaves ficam apenas no servidor)
   claudeApiKey   String?
   claudeModelo   String   @default("claude-sonnet-4-6")

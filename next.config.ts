@@ -1,10 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Build em VPS pequena (512 MB de RAM): a checagem de tipos e o lint dentro do
-  // `next build` consomem muita memória e estouram o heap. Como já validamos os tipos
-  // localmente com `tsc --noEmit`, pulamos essas etapas no build de produção.
-  eslint: { ignoreDuringBuilds: true },
+  // Build em VPS pequena (512 MB de RAM): a checagem de tipos dentro do `next build`
+  // consome muita memória e estoura o heap. Como já validamos os tipos localmente com
+  // `tsc --noEmit`, pulamos essa etapa no build de produção.
   typescript: { ignoreBuildErrors: true },
   // Libera o dev server a servir os recursos client (gráficos, tema, etc.) quando o
   // app é acessado por um túnel/IP diferente de localhost (Cloudflare Tunnel / ngrok).

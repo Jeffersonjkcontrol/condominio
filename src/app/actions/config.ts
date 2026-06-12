@@ -60,6 +60,45 @@ export async function salvarConfiguracao(formData: FormData) {
   revalidatePath("/", "layout");
 }
 
+const MAX_LOGO = 400 * 1024; // 400 KB
+const TIPOS_LOGO = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+
+/** Salva (ou troca) o logo do condomínio, guardado como data URL no banco. */
+export async function salvarLogo(formData: FormData) {
+  await exigirAdmin();
+  const file = formData.get("logo") as File | null;
+  if (!file || file.size === 0) throw new Error("Selecione uma imagem.");
+  if (!TIPOS_LOGO.includes(file.type))
+    throw new Error("Formato inválido. Use PNG, JPG, WEBP ou SVG.");
+  if (file.size > MAX_LOGO)
+    throw new Error("Imagem muito grande (máx. 400 KB). Reduza o tamanho e tente de novo.");
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const dataUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
+
+  await prisma.configuracao.upsert({
+    where: { id: "default" },
+    update: { logoData: dataUrl },
+    create: { id: "default", logoData: dataUrl },
+  });
+
+  await registrar("EDITOU", "Configuração", "Atualizou o logo do condomínio");
+  revalidatePath("/configuracoes");
+  revalidatePath("/", "layout");
+}
+
+/** Remove o logo, voltando ao ícone padrão. */
+export async function removerLogo() {
+  await exigirAdmin();
+  await prisma.configuracao.update({
+    where: { id: "default" },
+    data: { logoData: null },
+  });
+  await registrar("EDITOU", "Configuração", "Removeu o logo do condomínio");
+  revalidatePath("/configuracoes");
+  revalidatePath("/", "layout");
+}
+
 /** Remove a chave de um provedor. */
 export async function removerChave(formData: FormData) {
   await exigirAdmin();

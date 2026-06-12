@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Building2, Sparkles, Check, X } from "lucide-react";
+import { Building2, Sparkles, Check, X, Image as ImageIcon } from "lucide-react";
 import { auth } from "@/auth";
 import { ehAdmin } from "@/lib/permissoes";
 import { getConfiguracao } from "@/lib/config";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { salvarConfiguracao, removerChave } from "@/app/actions/config";
+import { salvarConfiguracao, removerChave, salvarLogo, removerLogo } from "@/app/actions/config";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -52,6 +52,54 @@ export default async function ConfiguracoesPage() {
         titulo="Configurações"
         descricao="Identidade do condomínio e integração com assistentes de IA."
       />
+
+      {/* Logo — formulário próprio (upload de arquivo, independente do form principal) */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ImageIcon className="h-5 w-5 text-primary" /> Logo
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex h-16 w-40 items-center justify-center rounded-lg border border-border bg-surface-muted">
+              {config.logoData ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={config.logoData}
+                  alt="Logo atual"
+                  className="max-h-14 max-w-[150px] object-contain"
+                />
+              ) : (
+                <span className="text-xs text-muted">Sem logo</span>
+              )}
+            </div>
+            <p className="text-sm text-muted">
+              Aparece no menu lateral, no topo e na tela de login. Quando há logo, ele substitui
+              o ícone e o nome.
+              <br />
+              PNG, JPG, WEBP ou SVG · máx. 400 KB · de preferência com fundo transparente.
+            </p>
+          </div>
+          <form action={salvarLogo} className="flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              name="logo"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              required
+              className="block text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-foreground hover:file:opacity-90"
+            />
+            <Button type="submit">Enviar logo</Button>
+          </form>
+          {config.logoData && (
+            <form action={removerLogo}>
+              <Button type="submit" variant="outline" size="sm">
+                Remover logo
+              </Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
 
       <form action={salvarConfiguracao} className="space-y-6">
         <Card>
