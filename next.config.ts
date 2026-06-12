@@ -19,6 +19,8 @@ const nextConfig: NextConfig = {
       // os formulários por causa do domínio diferente.
       allowedOrigins: [
         "localhost:3000",
+        // Produção (VPS DigitalOcean + DuckDNS)
+        "figueiragarden.duckdns.org",
         "*.trycloudflare.com",
         "*.ngrok-free.app",
         "*.ngrok.io",
