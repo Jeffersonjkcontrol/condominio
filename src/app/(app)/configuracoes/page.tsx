@@ -1,20 +1,23 @@
 import { redirect } from "next/navigation";
-import { Building2, Sparkles, Check, X, Image as ImageIcon } from "lucide-react";
+import { Building2, Sparkles, Check, X, Image as ImageIcon, Brain } from "lucide-react";
 import { auth } from "@/auth";
 import { ehAdmin } from "@/lib/permissoes";
 import { getConfiguracao } from "@/lib/config";
+import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { salvarConfiguracao, removerChave, salvarLogo, removerLogo } from "@/app/actions/config";
+import { criarMemoria, atualizarMemoria, excluirMemoria } from "@/app/actions/memorias";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
   if (!ehAdmin(session?.user.papel)) redirect("/");
 
   const config = await getConfiguracao();
+  const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "desc" } });
 
   const provedores = [
     {
@@ -97,6 +100,70 @@ export default async function ConfiguracoesPage() {
                 Remover logo
               </Button>
             </form>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Memória do Assistente — fatos permanentes (admin) */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5 text-primary" /> Memória do Assistente
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted">
+            Fatos e instruções que o Assistente IA lembra em <strong>todas</strong> as conversas
+            (nomes, regras, contatos, vencimentos…). A própria IA também pode salvar memórias
+            durante a conversa — todas aparecem aqui para você editar ou remover.
+          </p>
+
+          <form action={criarMemoria} className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              name="conteudo"
+              required
+              maxLength={500}
+              placeholder="Ex.: O zelador é o João, telefone (19) 99999-0000"
+              className="flex-1"
+            />
+            <Button type="submit">Adicionar</Button>
+          </form>
+
+          {memorias.length === 0 ? (
+            <p className="text-sm text-muted">Nenhuma memória cadastrada ainda.</p>
+          ) : (
+            <ul className="space-y-2">
+              {memorias.map((m) => (
+                <li key={m.id} className="rounded-lg border border-border p-3">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Badge tone={m.origem === "IA" ? "default" : "success"}>
+                      {m.origem === "IA" ? "Salva pela IA" : "Manual"}
+                    </Badge>
+                    {m.criadoPorNome && (
+                      <span className="text-xs text-muted">por {m.criadoPorNome}</span>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <form
+                      action={atualizarMemoria}
+                      className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center"
+                    >
+                      <input type="hidden" name="id" value={m.id} />
+                      <Input name="conteudo" defaultValue={m.conteudo} maxLength={500} className="flex-1" />
+                      <Button type="submit" variant="outline" size="sm">
+                        Salvar
+                      </Button>
+                    </form>
+                    <form action={excluirMemoria}>
+                      <input type="hidden" name="id" value={m.id} />
+                      <Button type="submit" variant="outline" size="sm">
+                        Excluir
+                      </Button>
+                    </form>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>

@@ -227,6 +227,17 @@ model Configuracao {
   atualizadoEm   DateTime @updatedAt
 }
 
+/// Fatos/instruções permanentes que o Assistente IA deve lembrar em todas as conversas.
+/// Injetadas no contexto de cada pergunta. Criadas manualmente (admin) ou pela própria IA.
+model MemoriaIA {
+  id            String   @id @default(cuid())
+  conteudo      String
+  origem        String   @default("MANUAL") // MANUAL ou IA
+  criadoPorNome String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+}
+
 model EtapaObra {
   id         String    @id @default(cuid())
   nome       String

@@ -12,25 +12,17 @@ export type ExecutorRelatorio = (
 
 export type RespostaIA = { resposta: string; arquivoUrl?: string };
 
-const PARAMETROS = {
-  type: "object",
-  properties: {
-    tipo: {
-      type: "string",
-      enum: ["financeiro", "obras", "fornecedores", "geral", "manutencao", "auditoria"],
-      description:
-        "Tipo do relatório: financeiro (recibos/gastos), obras (cronograma e atrasos), manutencao (ordens de serviço), fornecedores, auditoria (rastreabilidade/quem fez o quê), geral (prestação de contas).",
-    },
-    mesReferencia: {
-      type: "string",
-      description: "Mês de referência no formato AAAA-MM. Opcional, usado apenas no relatório financeiro.",
-    },
-  },
-  required: ["tipo"],
-} as const;
-
-const DESCRICAO_FERRAMENTA =
-  "Gera um relatório do condomínio em PDF (financeiro, obras, fornecedores ou prestação de contas geral). Use quando o usuário pedir um relatório, PDF ou prestação de contas.";
+/** Definição genérica de uma ferramenta (function calling) exposta à IA. */
+export type Ferramenta = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+/** Executor genérico: recebe o nome da ferramenta e os argumentos, devolve o resultado. */
+export type ExecutorFerramenta = (
+  nome: string,
+  entrada: Record<string, unknown>
+) => Promise<{ resultado: string; arquivoUrl?: string }>;
 
 async function erroLegivel(resp: Response, nome: string): Promise<string> {
   let detalhe = "";
@@ -94,7 +86,8 @@ async function chamarClaude(
   modelo: string,
   system: string,
   mensagens: Mensagem[],
-  exec: ExecutorRelatorio
+  ferramentas: Ferramenta[],
+  executar: ExecutorFerramenta
 ): Promise<RespostaIA> {
   const url = "https://api.anthropic.com/v1/messages";
   const headers = {
@@ -102,7 +95,11 @@ async function chamarClaude(
     "x-api-key": apiKey,
     "anthropic-version": "2023-06-01",
   };
-  const tools = [{ name: "gerar_relatorio", description: DESCRICAO_FERRAMENTA, input_schema: PARAMETROS }];
+  const tools = ferramentas.map((f) => ({
+    name: f.name,
+    description: f.description,
+    input_schema: f.parameters,
+  }));
   const msgs: unknown[] = mensagens.map((m) => ({ role: m.role, content: m.content }));
 
   const d1 = await requisitar(
@@ -112,10 +109,10 @@ async function chamarClaude(
   );
 
   const toolUse = ((d1.content as { type: string }[]) ?? []).find((c) => c.type === "tool_use") as
-    | { id: string; input: EntradaRelatorio }
+    | { id: string; name: string; input: Record<string, unknown> }
     | undefined;
   if (d1.stop_reason === "tool_use" && toolUse) {
-    const { resultado, arquivoUrl } = await exec(toolUse.input);
+    const { resultado, arquivoUrl } = await executar(toolUse.name, toolUse.input);
     msgs.push({ role: "assistant", content: d1.content });
     msgs.push({
       role: "user",
@@ -134,10 +131,10 @@ async function chamarClaude(
 
 type ChatMsg = {
   content?: string | null;
-  tool_calls?: { id: string; function: { arguments: string } }[];
+  tool_calls?: { id: string; function: { name: string; arguments: string } }[];
 };
 
-type GeminiPart = { text?: string; functionCall?: { args?: unknown } };
+type GeminiPart = { text?: string; functionCall?: { name?: string; args?: unknown } };
 type GeminiResp = { candidates?: { content?: { parts?: GeminiPart[] } }[] };
 
 function textoClaude(d: Record<string, unknown>): string {
@@ -157,13 +154,15 @@ async function chamarOpenAI(
   modelo: string,
   system: string,
   mensagens: Mensagem[],
-  exec: ExecutorRelatorio
+  ferramentas: Ferramenta[],
+  executar: ExecutorFerramenta
 ): Promise<RespostaIA> {
   const url = "https://api.openai.com/v1/chat/completions";
   const headers = { "content-type": "application/json", authorization: `Bearer ${apiKey}` };
-  const tools = [
-    { type: "function", function: { name: "gerar_relatorio", description: DESCRICAO_FERRAMENTA, parameters: PARAMETROS } },
-  ];
+  const tools = ferramentas.map((f) => ({
+    type: "function",
+    function: { name: f.name, description: f.description, parameters: f.parameters },
+  }));
   const msgs: unknown[] = [{ role: "system", content: system }, ...mensagens];
 
   const d1 = await requisitar(
@@ -175,11 +174,11 @@ async function chamarOpenAI(
 
   if (msg?.tool_calls?.length) {
     const tc = msg.tool_calls[0];
-    let input: EntradaRelatorio = { tipo: "geral" };
+    let input: Record<string, unknown> = {};
     try {
       input = JSON.parse(tc.function.arguments || "{}");
     } catch {}
-    const { resultado, arquivoUrl } = await exec(input);
+    const { resultado, arquivoUrl } = await executar(tc.function.name, input);
     msgs.push(msg);
     msgs.push({ role: "tool", tool_call_id: tc.id, content: resultado });
     const d2 = await requisitar(
@@ -200,10 +199,19 @@ async function chamarGemini(
   modelo: string,
   system: string,
   mensagens: Mensagem[],
-  exec: ExecutorRelatorio
+  ferramentas: Ferramenta[],
+  executar: ExecutorFerramenta
 ): Promise<RespostaIA> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
-  const tools = [{ functionDeclarations: [{ name: "gerar_relatorio", description: DESCRICAO_FERRAMENTA, parameters: PARAMETROS }] }];
+  const tools = [
+    {
+      functionDeclarations: ferramentas.map((f) => ({
+        name: f.name,
+        description: f.description,
+        parameters: f.parameters,
+      })),
+    },
+  ];
   const contents: unknown[] = mensagens.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -220,12 +228,13 @@ async function chamarGemini(
   const fcPart = parts1.find((p) => p.functionCall);
 
   if (fcPart?.functionCall) {
-    const args = (fcPart.functionCall.args ?? {}) as EntradaRelatorio;
-    const { resultado, arquivoUrl } = await exec(args);
+    const nome = fcPart.functionCall.name ?? "gerar_relatorio";
+    const args = (fcPart.functionCall.args ?? {}) as Record<string, unknown>;
+    const { resultado, arquivoUrl } = await executar(nome, args);
     contents.push({ role: "model", parts: [{ functionCall: fcPart.functionCall }] });
     contents.push({
       role: "user",
-      parts: [{ functionResponse: { name: "gerar_relatorio", response: { resultado } } }],
+      parts: [{ functionResponse: { name: nome, response: { resultado } } }],
     });
     const d2 = await requisitar(
       url,
@@ -260,19 +269,20 @@ export async function conversar(
   },
   system: string,
   mensagens: Mensagem[],
-  exec: ExecutorRelatorio
+  ferramentas: Ferramenta[],
+  executar: ExecutorFerramenta
 ): Promise<RespostaIA> {
   if (provedor === "claude") {
     if (!cfg.claudeApiKey) throw new Error("Chave da Claude não configurada.");
-    return chamarClaude(cfg.claudeApiKey, cfg.claudeModelo, system, mensagens, exec);
+    return chamarClaude(cfg.claudeApiKey, cfg.claudeModelo, system, mensagens, ferramentas, executar);
   }
   if (provedor === "gemini") {
     if (!cfg.geminiApiKey) throw new Error("Chave do Gemini não configurada.");
-    return chamarGemini(cfg.geminiApiKey, cfg.geminiModelo, system, mensagens, exec);
+    return chamarGemini(cfg.geminiApiKey, cfg.geminiModelo, system, mensagens, ferramentas, executar);
   }
   if (provedor === "openai") {
     if (!cfg.openaiApiKey) throw new Error("Chave do ChatGPT não configurada.");
-    return chamarOpenAI(cfg.openaiApiKey, cfg.openaiModelo, system, mensagens, exec);
+    return chamarOpenAI(cfg.openaiApiKey, cfg.openaiModelo, system, mensagens, ferramentas, executar);
   }
   throw new Error("Provedor inválido.");
 }

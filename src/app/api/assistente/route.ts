@@ -8,6 +8,8 @@ import {
   type Mensagem,
   type Provedor,
   type ExecutorRelatorio,
+  type Ferramenta,
+  type ExecutorFerramenta,
 } from "@/lib/ai-providers";
 import { type TipoRelatorio } from "@/lib/relatorios";
 import { formatarMoeda, formatarData, formatarDataHora } from "@/lib/utils";
@@ -94,6 +96,10 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
     include: { responsavel: { select: { nome: true } } },
     take: 50,
   });
+
+  // Memórias permanentes (fatos/instruções que o assistente deve sempre lembrar)
+  const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "asc" } });
+  const memoriasTxt = memorias.map((m) => `- ${m.conteudo}`).join("\n");
 
   // ---- Financeiro ----
   const gastoMes = recibos
@@ -221,6 +227,9 @@ ${auditoriaTxt || "nenhuma"}`
 Use estes dados como base factual. "Obras" (reformas/construções com cronograma) e "Manutenção/OS"
 (ordens de serviço internas: jardinagem, elétrica, hidráulica, etc.) são coisas DISTINTAS.
 
+== MEMÓRIAS / INSTRUÇÕES PERMANENTES (fatos que você DEVE sempre lembrar e respeitar) ==
+${memoriasTxt || "nenhuma memória cadastrada ainda"}
+
 == FINANCEIRO ==
 Gasto no mês: ${formatarMoeda(gastoMes)} | Gasto total: ${formatarMoeda(gastoTotal)}
 Recibos: ${recibos.length} (${pendentes} pendentes) | Gastos por categoria: ${categoriasTxt || "nenhum"}
@@ -260,6 +269,45 @@ const NOME_REL: Record<string, string> = {
   geral: "Prestação de contas",
   manutencao: "Manutenção",
   auditoria: "Auditoria",
+};
+
+// ---- Definições das ferramentas (function calling) ----
+const FERRAMENTA_RELATORIO: Ferramenta = {
+  name: "gerar_relatorio",
+  description:
+    "Gera um relatório do condomínio em PDF (financeiro, obras, manutenção, fornecedores, auditoria ou prestação de contas geral). Use quando o usuário pedir um relatório, PDF ou prestação de contas.",
+  parameters: {
+    type: "object",
+    properties: {
+      tipo: {
+        type: "string",
+        enum: ["financeiro", "obras", "fornecedores", "geral", "manutencao", "auditoria"],
+        description:
+          "Tipo do relatório: financeiro (recibos/gastos), obras (cronograma e atrasos), manutencao (ordens de serviço), fornecedores, auditoria (rastreabilidade), geral (prestação de contas).",
+      },
+      mesReferencia: {
+        type: "string",
+        description: "Mês de referência no formato AAAA-MM. Opcional, usado no relatório financeiro.",
+      },
+    },
+    required: ["tipo"],
+  },
+};
+
+const FERRAMENTA_MEMORIA: Ferramenta = {
+  name: "salvar_memoria",
+  description:
+    "Salva um fato ou instrução PERMANENTE sobre o condomínio para você lembrar em TODAS as conversas futuras. Use quando o usuário informar algo duradouro: nomes (zelador, síndico), regras, preferências, contatos, datas/vencimentos fixos, valores de referência. NÃO use para perguntas pontuais nem para coisas que já estão nos dados do condomínio.",
+  parameters: {
+    type: "object",
+    properties: {
+      conteudo: {
+        type: "string",
+        description: "O fato a memorizar, em uma frase curta e objetiva. Ex.: 'O zelador é o João, telefone (19) 99999-0000'.",
+      },
+    },
+    required: ["conteudo"],
+  },
 };
 
 /** Executor da ferramenta: devolve o link da rota que gera o PDF na hora (/api/relatorios).
@@ -307,12 +355,33 @@ export async function POST(req: NextRequest) {
 
   const contexto = await montarContexto(config.nomeCondominio, isAdmin);
 
-  // Gestor não pode gerar o relatório de auditoria (dado sensível, só Admin).
-  const exec: ExecutorRelatorio = async (entrada) => {
-    if (entrada.tipo === "auditoria" && !isAdmin) {
+  // Ferramentas disponíveis: relatório (todos) + salvar memória (só Admin gerencia memórias).
+  const ferramentas: Ferramenta[] = [
+    FERRAMENTA_RELATORIO,
+    ...(isAdmin ? [FERRAMENTA_MEMORIA] : []),
+  ];
+
+  const executar: ExecutorFerramenta = async (nome, entrada) => {
+    if (nome === "salvar_memoria") {
+      if (!isAdmin) return { resultado: "Apenas o síndico/admin pode salvar memórias." };
+      const conteudo = String(entrada.conteudo ?? "").trim();
+      if (!conteudo) return { resultado: "Não havia conteúdo para salvar." };
+      await prisma.memoriaIA.create({
+        data: { conteudo, origem: "IA", criadoPorNome: session.user.name ?? "IA" },
+      });
+      return {
+        resultado: `Memória salva: "${conteudo}". O síndico pode revisar/editar/remover em Configurações.`,
+      };
+    }
+    // gerar_relatorio — Gestor não pode gerar o de auditoria (dado sensível, só Admin).
+    const tipo = String(entrada.tipo ?? "geral");
+    if (tipo === "auditoria" && !isAdmin) {
       return { resultado: "Relatório de auditoria é restrito ao síndico/admin." };
     }
-    return executarRelatorio(entrada);
+    return executarRelatorio({
+      tipo,
+      mesReferencia: entrada.mesReferencia ? String(entrada.mesReferencia) : undefined,
+    });
   };
 
   const system = `Você é o assistente virtual de gestão do condomínio "${config.nomeCondominio}".
@@ -324,7 +393,14 @@ atualidades, tradução, etc.).
 Responda sempre em português do Brasil, de forma objetiva e prática.
 Use os dados abaixo como base factual quando a pergunta for sobre o condomínio.
 Quando o usuário pedir um relatório, PDF ou prestação de contas, use a ferramenta "gerar_relatorio"
-e, depois, confirme em uma frase curta que o PDF foi gerado.
+e, depois, confirme em uma frase curta que o PDF foi gerado.${
+    isAdmin
+      ? `
+Você também tem uma MEMÓRIA permanente: quando o usuário informar um fato duradouro (nomes, regras,
+preferências, contatos, vencimentos fixos), use a ferramenta "salvar_memoria" para registrá-lo e
+confirme em uma frase. Respeite sempre as "MEMÓRIAS / INSTRUÇÕES PERMANENTES" listadas abaixo.`
+      : ""
+  }
 
 ${contexto}`;
 
@@ -334,7 +410,8 @@ ${contexto}`;
       config,
       system,
       mensagens,
-      exec
+      ferramentas,
+      executar
     );
     const id = await persistir(conversaId, provedor, ultimaUser, resposta, arquivoUrl, session.user.id);
     return NextResponse.json({ resposta, arquivoUrl, conversaId: id });
