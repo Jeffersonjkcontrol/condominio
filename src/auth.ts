@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import type { Papel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { estaBloqueado, registrarFalha, limparTentativas } from "@/lib/rate-limit";
 
 const credenciaisSchema = z.object({
   email: z.string().email(),
@@ -20,17 +21,38 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "E-mail", type: "email" },
         senha: { label: "Senha", type: "password" },
       },
-      authorize: async (credenciais) => {
+      authorize: async (credenciais, request) => {
         const parsed = credenciaisSchema.safeParse(credenciais);
         if (!parsed.success) return null;
+
+        // Chaves do limitador: por e-mail e por IP (atrás do Nginx, via X-Forwarded-For).
+        const fwd = request?.headers?.get("x-forwarded-for") ?? "";
+        const ip = fwd.split(",")[0].trim() || "desconhecido";
+        const chaveEmail = `email:${parsed.data.email.toLowerCase()}`;
+        const chaveIp = `ip:${ip}`;
+
+        // Bloqueia se excedeu tentativas (não revela o motivo; trata como falha).
+        if (estaBloqueado(chaveEmail) || estaBloqueado(chaveIp)) return null;
 
         const user = await prisma.user.findUnique({
           where: { email: parsed.data.email },
         });
-        if (!user || !user.ativo) return null;
+        if (!user || !user.ativo) {
+          registrarFalha(chaveEmail);
+          registrarFalha(chaveIp);
+          return null;
+        }
 
         const senhaOk = await bcrypt.compare(parsed.data.senha, user.senhaHash);
-        if (!senhaOk) return null;
+        if (!senhaOk) {
+          registrarFalha(chaveEmail);
+          registrarFalha(chaveIp);
+          return null;
+        }
+
+        // Sucesso: zera o histórico de falhas.
+        limparTentativas(chaveEmail);
+        limparTentativas(chaveIp);
 
         return {
           id: user.id,
