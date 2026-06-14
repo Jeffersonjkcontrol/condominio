@@ -38,11 +38,27 @@ async function sincronizarContaFixa(recorrenciaId: string | undefined, valor: nu
   revalidatePath("/recorrencias");
 }
 
+// Apenas PDF e imagens. A extensão é derivada do TIPO do arquivo (não do nome enviado),
+// evitando que se sirva HTML/SVG malicioso a partir de /uploads (XSS armazenado).
+const TIPOS_RECIBO: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+};
+const MAX_ARQUIVO_RECIBO = 15 * 1024 * 1024; // 15 MB
+
 async function salvarArquivo(arquivo: File | null): Promise<string | null> {
   if (!arquivo || arquivo.size === 0) return null;
+  const ext = TIPOS_RECIBO[arquivo.type];
+  if (!ext) {
+    throw new Error("Arquivo inválido. Envie um PDF ou imagem (JPG, PNG ou WEBP).");
+  }
+  if (arquivo.size > MAX_ARQUIVO_RECIBO) {
+    throw new Error("Arquivo muito grande (máximo 15 MB).");
+  }
   const dir = path.join(process.cwd(), "public", "uploads");
   await mkdir(dir, { recursive: true });
-  const ext = path.extname(arquivo.name) || ".bin";
   const nome = `${randomUUID()}${ext}`;
   const bytes = Buffer.from(await arquivo.arrayBuffer());
   await writeFile(path.join(dir, nome), bytes);

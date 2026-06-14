@@ -14,6 +14,24 @@ const nextConfig: NextConfig = {
     "*.ngrok.io",
     "*.loca.lt",
   ],
+  // Headers de segurança (defesa em profundidade) aplicados a todas as rotas.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+          },
+        ],
+      },
+    ];
+  },
   experimental: {
     serverActions: {
       // Permite anexar PDFs/fotos de contas maiores (padrão do Next é 1 MB).

@@ -9,7 +9,10 @@ export async function marcarLida(formData: FormData) {
   const session = await auth();
   if (!session?.user) return;
   const id = String(formData.get("id"));
-  const link = formData.get("link") ? String(formData.get("link")) : null;
+  const linkBruto = formData.get("link") ? String(formData.get("link")) : null;
+  // Aceita apenas caminhos internos (evita open redirect para sites externos).
+  const link =
+    linkBruto && linkBruto.startsWith("/") && !linkBruto.startsWith("//") ? linkBruto : null;
   // só marca a própria notificação
   await prisma.notificacao.updateMany({
     where: { id, usuarioId: session.user.id },
