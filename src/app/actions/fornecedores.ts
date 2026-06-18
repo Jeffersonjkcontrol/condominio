@@ -114,3 +114,91 @@ export async function excluirServico(formData: FormData) {
   revalidatePath("/servicos");
   if (formData.get("redirecionar")) redirect("/servicos");
 }
+
+// ---- Etapas do serviço (acompanhamento de execução por fases) ----
+
+const etapaServicoSchema = z.object({
+  servicoId: z.string().min(1),
+  titulo: z.string().min(1, "Informe o título da etapa."),
+  descricao: z.string().optional(),
+  status: z.enum(["PENDENTE", "EM_ANDAMENTO", "CONCLUIDA"]).optional(),
+  ordem: z.coerce.number().optional(),
+});
+
+function lerEtapaServico(formData: FormData) {
+  return etapaServicoSchema.parse({
+    servicoId: formData.get("servicoId"),
+    titulo: formData.get("titulo"),
+    descricao: formData.get("descricao") || undefined,
+    status: formData.get("status") || undefined,
+    ordem: formData.get("ordem") ?? 0,
+  });
+}
+
+export async function criarEtapaServico(formData: FormData) {
+  await exigirGestor();
+  const d = lerEtapaServico(formData);
+  const status = d.status ?? "PENDENTE";
+  await prisma.etapaServico.create({
+    data: {
+      servicoId: d.servicoId,
+      titulo: d.titulo,
+      descricao: d.descricao,
+      status,
+      ordem: d.ordem ?? 0,
+      concluidaEm: status === "CONCLUIDA" ? new Date() : null,
+    },
+  });
+  await registrar("CRIOU", "Etapa do serviço", d.titulo, d.servicoId);
+  revalidatePath(`/servicos/${d.servicoId}`);
+}
+
+export async function atualizarEtapaServico(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const d = lerEtapaServico(formData);
+  const status = d.status ?? "PENDENTE";
+  await prisma.etapaServico.update({
+    where: { id },
+    data: {
+      titulo: d.titulo,
+      descricao: d.descricao,
+      status,
+      ordem: d.ordem ?? 0,
+      concluidaEm: status === "CONCLUIDA" ? new Date() : null,
+    },
+  });
+  await registrar(status === "CONCLUIDA" ? "CONCLUIU" : "EDITOU", "Etapa do serviço", d.titulo, d.servicoId);
+  revalidatePath(`/servicos/${d.servicoId}`);
+}
+
+/** Alterna rapidamente o status de uma etapa do serviço (Pendente ↔ Concluída). */
+export async function alternarEtapaServico(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const servicoId = String(formData.get("servicoId"));
+  const etapa = await prisma.etapaServico.findUnique({ where: { id } });
+  if (!etapa) return;
+  const novo = etapa.status === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA";
+  await prisma.etapaServico.update({
+    where: { id },
+    data: { status: novo, concluidaEm: novo === "CONCLUIDA" ? new Date() : null },
+  });
+  await registrar(
+    novo === "CONCLUIDA" ? "CONCLUIU" : "EDITOU",
+    "Etapa do serviço",
+    `${etapa.titulo} (${novo === "CONCLUIDA" ? "concluída" : "reaberta"})`,
+    servicoId
+  );
+  revalidatePath(`/servicos/${servicoId}`);
+}
+
+export async function excluirEtapaServico(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const servicoId = String(formData.get("servicoId"));
+  const etapa = await prisma.etapaServico.findUnique({ where: { id } });
+  await prisma.etapaServico.delete({ where: { id } });
+  if (etapa) await registrar("EXCLUIU", "Etapa do serviço", etapa.titulo, servicoId);
+  revalidatePath(`/servicos/${servicoId}`);
+}

@@ -119,6 +119,22 @@ model Servico {
 
   fornecedorId String
   fornecedor   Fornecedor @relation(fields: [fornecedorId], references: [id], onDelete: Cascade)
+
+  etapas EtapaServico[]
+}
+
+/// Etapa para acompanhar a execução de um serviço dividido em fases (checklist).
+model EtapaServico {
+  id          String         @id @default(cuid())
+  titulo      String
+  descricao   String?
+  status      StatusSubEtapa @default(PENDENTE)
+  ordem       Int            @default(0)
+  concluidaEm DateTime?
+  criadoEm    DateTime       @default(now())
+
+  servicoId String
+  servico   Servico @relation(fields: [servicoId], references: [id], onDelete: Cascade)
 }
 
 model Recibo {
