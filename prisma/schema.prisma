@@ -245,11 +245,33 @@ model EtapaObra {
   fimPrev    DateTime
   inicioReal DateTime?
   fimReal    DateTime?
-  progresso  Int       @default(0) // 0-100
+  progresso  Int       @default(0) // 0-100 (automático quando há sub-etapas; manual caso contrário)
   ordem      Int       @default(0)
 
   obraId String
   obra   Obra   @relation(fields: [obraId], references: [id], onDelete: Cascade)
+
+  subEtapas SubEtapa[]
+}
+
+enum StatusSubEtapa {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDA
+}
+
+/// Sub-tarefa dentro de uma etapa de obra (checklist). O % da etapa é calculado por estas.
+model SubEtapa {
+  id          String         @id @default(cuid())
+  titulo      String
+  descricao   String?
+  status      StatusSubEtapa @default(PENDENTE)
+  ordem       Int            @default(0)
+  concluidaEm DateTime?
+  criadoEm    DateTime       @default(now())
+
+  etapaId String
+  etapa   EtapaObra @relation(fields: [etapaId], references: [id], onDelete: Cascade)
 }
 
 model OrdemServico {

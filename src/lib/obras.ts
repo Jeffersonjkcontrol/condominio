@@ -37,6 +37,13 @@ export function diasAtraso(etapa: EtapaLike, hoje = new Date()): number {
  * - Atrasada: passou do fim previsto (ou há etapa atrasada) e não foi concluída.
  * - Em andamento: está dentro do período previsto, no prazo.
  */
+/** Progresso de uma etapa pela proporção de sub-etapas concluídas (0-100). */
+export function progressoEtapa(subEtapas: { status: string }[]): number {
+  if (subEtapas.length === 0) return 0;
+  const feitas = subEtapas.filter((s) => s.status === "CONCLUIDA").length;
+  return Math.round((feitas / subEtapas.length) * 100);
+}
+
 export function statusCalculadoObra(
   statusManual: string,
   inicioPrev: Date | string,

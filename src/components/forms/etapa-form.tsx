@@ -21,11 +21,13 @@ export function EtapaForm({
   etapa,
   obraId,
   proximaOrdem,
+  temSubEtapas = false,
 }: {
   action: (formData: FormData) => void;
   etapa?: Etapa;
   obraId: string;
   proximaOrdem?: number;
+  temSubEtapas?: boolean;
 }) {
   const close = useModalClose();
   return (
@@ -79,17 +81,28 @@ export function EtapaForm({
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="progresso">Progresso (%)</Label>
-          <Input
-            id="progresso"
-            name="progresso"
-            type="number"
-            min="0"
-            max="100"
-            defaultValue={etapa?.progresso ?? 0}
-          />
-        </div>
+        {temSubEtapas ? (
+          <div>
+            <Label>Progresso (%)</Label>
+            {/* Mantém o valor atual (calculado pelas sub-etapas) ao salvar a etapa. */}
+            <input type="hidden" name="progresso" value={etapa?.progresso ?? 0} />
+            <p className="mt-2 text-sm text-muted">
+              Calculado automaticamente pelas sub-etapas ({etapa?.progresso ?? 0}%).
+            </p>
+          </div>
+        ) : (
+          <div>
+            <Label htmlFor="progresso">Progresso (%)</Label>
+            <Input
+              id="progresso"
+              name="progresso"
+              type="number"
+              min="0"
+              max="100"
+              defaultValue={etapa?.progresso ?? 0}
+            />
+          </div>
+        )}
         <div>
           <Label htmlFor="ordem">Ordem</Label>
           <Input

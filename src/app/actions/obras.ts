@@ -176,3 +176,113 @@ export async function excluirEtapa(formData: FormData) {
   if (etapa) await registrar("EXCLUIU", "Etapa", etapa.nome, obraId);
   revalidatePath(`/obras/${obraId}`);
 }
+
+// ---- Sub-etapas ----
+
+const subEtapaSchema = z.object({
+  etapaId: z.string().min(1),
+  titulo: z.string().min(1, "Informe o título da sub-etapa."),
+  descricao: z.string().optional(),
+  status: z.enum(["PENDENTE", "EM_ANDAMENTO", "CONCLUIDA"]).optional(),
+  ordem: z.coerce.number().optional(),
+});
+
+function lerSubEtapa(formData: FormData) {
+  return subEtapaSchema.parse({
+    etapaId: formData.get("etapaId"),
+    titulo: formData.get("titulo"),
+    descricao: formData.get("descricao") || undefined,
+    status: formData.get("status") || undefined,
+    ordem: formData.get("ordem") ?? 0,
+  });
+}
+
+/** Recalcula e PERSISTE o progresso (%) da etapa pela proporção de sub-etapas concluídas,
+ *  carimbando as datas reais. Se a etapa ficar sem sub-etapas, não mexe no progresso (volta a ser manual). */
+async function recalcularProgressoEtapa(etapaId: string) {
+  const subs = await prisma.subEtapa.findMany({ where: { etapaId }, select: { status: true } });
+  if (subs.length === 0) return;
+  const feitas = subs.filter((s) => s.status === "CONCLUIDA").length;
+  const progresso = Math.round((feitas / subs.length) * 100);
+  const { inicioReal, fimReal } = datasReais({ progresso });
+  await prisma.etapaObra.update({
+    where: { id: etapaId },
+    data: { progresso, inicioReal, fimReal },
+  });
+}
+
+export async function criarSubEtapa(formData: FormData) {
+  await exigirGestor();
+  const d = lerSubEtapa(formData);
+  const obraId = String(formData.get("obraId"));
+  const status = d.status ?? "PENDENTE";
+  await prisma.subEtapa.create({
+    data: {
+      etapaId: d.etapaId,
+      titulo: d.titulo,
+      descricao: d.descricao,
+      status,
+      ordem: d.ordem ?? 0,
+      concluidaEm: status === "CONCLUIDA" ? new Date() : null,
+    },
+  });
+  await recalcularProgressoEtapa(d.etapaId);
+  await registrar("CRIOU", "Sub-etapa", d.titulo, obraId);
+  revalidatePath(`/obras/${obraId}`);
+}
+
+export async function atualizarSubEtapa(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const d = lerSubEtapa(formData);
+  const obraId = String(formData.get("obraId"));
+  const status = d.status ?? "PENDENTE";
+  await prisma.subEtapa.update({
+    where: { id },
+    data: {
+      titulo: d.titulo,
+      descricao: d.descricao,
+      status,
+      ordem: d.ordem ?? 0,
+      concluidaEm: status === "CONCLUIDA" ? new Date() : null,
+    },
+  });
+  await recalcularProgressoEtapa(d.etapaId);
+  await registrar(status === "CONCLUIDA" ? "CONCLUIU" : "EDITOU", "Sub-etapa", d.titulo, obraId);
+  revalidatePath(`/obras/${obraId}`);
+}
+
+/** Alterna rapidamente o status de uma sub-etapa (Pendente ↔ Concluída). */
+export async function alternarSubEtapa(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const obraId = String(formData.get("obraId"));
+  const sub = await prisma.subEtapa.findUnique({ where: { id } });
+  if (!sub) return;
+  const novo = sub.status === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA";
+  await prisma.subEtapa.update({
+    where: { id },
+    data: { status: novo, concluidaEm: novo === "CONCLUIDA" ? new Date() : null },
+  });
+  await recalcularProgressoEtapa(sub.etapaId);
+  await registrar(
+    novo === "CONCLUIDA" ? "CONCLUIU" : "EDITOU",
+    "Sub-etapa",
+    `${sub.titulo} (${novo === "CONCLUIDA" ? "concluída" : "reaberta"})`,
+    obraId
+  );
+  revalidatePath(`/obras/${obraId}`);
+}
+
+export async function excluirSubEtapa(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const obraId = String(formData.get("obraId"));
+  const sub = await prisma.subEtapa.findUnique({ where: { id } });
+  await prisma.subEtapa.delete({ where: { id } });
+  if (sub) {
+    await recalcularProgressoEtapa(sub.etapaId);
+    await registrar("EXCLUIU", "Sub-etapa", sub.titulo, obraId);
+  }
+  revalidatePath(`/obras/${obraId}`);
+}

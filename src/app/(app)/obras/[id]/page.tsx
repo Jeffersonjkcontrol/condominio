@@ -1,22 +1,34 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Pencil, AlertTriangle, CalendarRange } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  AlertTriangle,
+  CalendarRange,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { podeEditar } from "@/lib/permissoes";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Gantt } from "@/components/gantt";
 import { ObraForm } from "@/components/forms/obra-form";
 import { EtapaForm } from "@/components/forms/etapa-form";
+import { SubEtapaForm } from "@/components/forms/subetapa-form";
 import {
   atualizarObra,
   criarEtapa,
   atualizarEtapa,
   excluirEtapa,
+  criarSubEtapa,
+  atualizarSubEtapa,
+  alternarSubEtapa,
+  excluirSubEtapa,
 } from "@/app/actions/obras";
 import { formatarMoeda, formatarData } from "@/lib/utils";
 import {
@@ -27,6 +39,7 @@ import {
   etapaAtrasada,
   diasAtraso,
 } from "@/lib/obras";
+import { STATUS_SUBOS_LABEL, STATUS_SUBOS_TONE } from "@/lib/manutencao";
 
 export default async function ObraDetalhePage({
   params,
@@ -41,7 +54,10 @@ export default async function ObraDetalhePage({
     prisma.obra.findUnique({
       where: { id },
       include: {
-        etapas: { orderBy: { ordem: "asc" } },
+        etapas: {
+          orderBy: { ordem: "asc" },
+          include: { subEtapas: { orderBy: { ordem: "asc" } } },
+        },
         responsavel: { select: { nome: true } },
         recibos: {
           orderBy: { dataEmissao: "desc" },
@@ -246,46 +262,47 @@ export default async function ObraDetalhePage({
           Nenhuma etapa cadastrada.
         </p>
       ) : (
-        <Table>
-          <THead>
-            <tr>
-              <TH>Etapa</TH>
-              <TH>Previsto</TH>
-              <TH>Progresso</TH>
-              <TH>Situação</TH>
-              {editavel && <TH className="text-right">Ações</TH>}
-            </tr>
-          </THead>
-          <tbody>
-            {obra.etapas.map((e) => {
-              const atrasada = etapaAtrasada(e, hoje);
-              const statusEtapa = statusCalculadoEtapa(e, hoje);
-              return (
-                <TR key={e.id}>
-                  <TD className="font-medium">{e.nome}</TD>
-                  <TD className="text-sm">
-                    {formatarData(e.inicioPrev)} – {formatarData(e.fimPrev)}
-                  </TD>
-                  <TD>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-muted">
-                        <div
-                          className={atrasada ? "h-full bg-danger" : "h-full bg-primary"}
-                          style={{ width: `${e.progresso}%` }}
-                        />
+        <div className="space-y-4">
+          {obra.etapas.map((e) => {
+            const atrasada = etapaAtrasada(e, hoje);
+            const statusEtapa = statusCalculadoEtapa(e, hoje);
+            const temSubs = e.subEtapas.length > 0;
+            const feitas = e.subEtapas.filter((s) => s.status === "CONCLUIDA").length;
+            return (
+              <Card key={e.id}>
+                <CardContent className="space-y-3">
+                  {/* Cabeçalho da etapa */}
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-foreground">{e.nome}</span>
+                        <Badge tone={STATUS_OBRA_TONE[statusEtapa]}>
+                          {STATUS_OBRA_LABEL[statusEtapa]}
+                          {atrasada ? ` +${diasAtraso(e, hoje)}d` : ""}
+                        </Badge>
                       </div>
-                      <span className="text-xs text-muted">{e.progresso}%</span>
+                      <p className="mt-1 text-xs text-muted">
+                        {formatarData(e.inicioPrev)} – {formatarData(e.fimPrev)}
+                        {temSubs ? ` · ${feitas}/${e.subEtapas.length} sub-etapas` : ""}
+                      </p>
                     </div>
-                  </TD>
-                  <TD>
-                    <Badge tone={STATUS_OBRA_TONE[statusEtapa]}>
-                      {STATUS_OBRA_LABEL[statusEtapa]}
-                      {atrasada ? ` +${diasAtraso(e, hoje)}d` : ""}
-                    </Badge>
-                  </TD>
-                  {editavel && (
-                    <TD>
-                      <div className="flex items-center justify-end gap-1">
+                    {editavel && (
+                      <div className="flex items-center gap-1">
+                        <Modal
+                          title="Nova sub-etapa"
+                          trigger={
+                            <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-border bg-surface px-3 text-sm font-medium hover:bg-surface-muted">
+                              <Plus className="h-4 w-4" /> Sub-etapa
+                            </span>
+                          }
+                        >
+                          <SubEtapaForm
+                            action={criarSubEtapa}
+                            etapaId={e.id}
+                            obraId={obra.id}
+                            proximaOrdem={e.subEtapas.length + 1}
+                          />
+                        </Modal>
                         <Modal
                           title="Editar etapa"
                           trigger={
@@ -294,7 +311,12 @@ export default async function ObraDetalhePage({
                             </span>
                           }
                         >
-                          <EtapaForm action={atualizarEtapa} etapa={e} obraId={obra.id} />
+                          <EtapaForm
+                            action={atualizarEtapa}
+                            etapa={e}
+                            obraId={obra.id}
+                            temSubEtapas={temSubs}
+                          />
                         </Modal>
                         <form action={excluirEtapa}>
                           <input type="hidden" name="obraId" value={obra.id} />
@@ -302,13 +324,92 @@ export default async function ObraDetalhePage({
                           <ConfirmSubmit />
                         </form>
                       </div>
-                    </TD>
+                    )}
+                  </div>
+
+                  {/* Barra de progresso */}
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-surface-muted">
+                      <div
+                        className={atrasada ? "h-full bg-danger" : "h-full bg-primary"}
+                        style={{ width: `${e.progresso}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted">{e.progresso}%</span>
+                  </div>
+
+                  {/* Sub-etapas */}
+                  {temSubs && (
+                    <ul className="divide-y divide-border border-t border-border">
+                      {e.subEtapas.map((s) => {
+                        const concluida = s.status === "CONCLUIDA";
+                        return (
+                          <li key={s.id} className="flex items-center gap-2 py-2">
+                            {editavel ? (
+                              <form action={alternarSubEtapa}>
+                                <input type="hidden" name="id" value={s.id} />
+                                <input type="hidden" name="obraId" value={obra.id} />
+                                <button
+                                  type="submit"
+                                  title={concluida ? "Reabrir" : "Concluir"}
+                                  className="flex h-6 w-6 items-center justify-center text-muted hover:text-primary"
+                                >
+                                  {concluida ? (
+                                    <CheckCircle2 className="h-5 w-5 text-success" />
+                                  ) : (
+                                    <Circle className="h-5 w-5" />
+                                  )}
+                                </button>
+                              </form>
+                            ) : concluida ? (
+                              <CheckCircle2 className="h-5 w-5 text-success" />
+                            ) : (
+                              <Circle className="h-5 w-5 text-muted" />
+                            )}
+                            <span
+                              className={`flex-1 text-sm ${
+                                concluida ? "text-muted line-through" : "text-foreground"
+                              }`}
+                            >
+                              {s.titulo}
+                            </span>
+                            <Badge tone={STATUS_SUBOS_TONE[s.status]}>
+                              {STATUS_SUBOS_LABEL[s.status]}
+                            </Badge>
+                            {editavel && (
+                              <>
+                                <Modal
+                                  title="Editar sub-etapa"
+                                  trigger={
+                                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-muted">
+                                      <Pencil className="h-4 w-4" />
+                                    </span>
+                                  }
+                                >
+                                  <SubEtapaForm
+                                    action={atualizarSubEtapa}
+                                    sub={s}
+                                    etapaId={e.id}
+                                    obraId={obra.id}
+                                  />
+                                </Modal>
+                                <form action={excluirSubEtapa}>
+                                  <input type="hidden" name="id" value={s.id} />
+                                  <input type="hidden" name="obraId" value={obra.id} />
+                                  <ConfirmSubmit />
+                                </form>
+                              </>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
-                </TR>
-              );
-            })}
-          </tbody>
-        </Table>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
     </div>
   );
