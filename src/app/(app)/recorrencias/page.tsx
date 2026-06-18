@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Plus, Pencil, Repeat, CalendarClock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
@@ -114,7 +115,15 @@ export default async function RecorrenciasPage({
                   </div>
                 </TD>
                 <TD>{r.categoria}</TD>
-                <TD>{r.fornecedor?.nome ?? "—"}</TD>
+                <TD>
+                  {r.fornecedor ? (
+                    <Link href={`/fornecedores/${r.fornecedorId}`} className="hover:text-primary">
+                      {r.fornecedor.nome}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
+                </TD>
                 <TD className="font-medium">{formatarMoeda(r.valor)}</TD>
                 <TD>todo dia {r.diaVencimento}</TD>
                 <TD>

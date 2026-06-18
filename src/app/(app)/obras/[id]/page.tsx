@@ -213,7 +213,15 @@ export default async function ObraDetalhePage({
                       <tr key={r.id} className="border-t border-border">
                         <td className="py-1.5">{formatarData(r.dataEmissao)}</td>
                         <td className="py-1.5">{r.categoria}</td>
-                        <td className="py-1.5">{r.fornecedor?.nome ?? "—"}</td>
+                        <td className="py-1.5">
+                          {r.fornecedor ? (
+                            <Link href={`/fornecedores/${r.fornecedorId}`} className="hover:text-primary">
+                              {r.fornecedor.nome}
+                            </Link>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                         <td className="py-1.5 text-right font-medium">{formatarMoeda(r.valor)}</td>
                       </tr>
                     ))}

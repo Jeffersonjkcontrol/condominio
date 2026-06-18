@@ -187,7 +187,15 @@ export default async function RecibosPage({
                     <div className="text-xs text-muted">{r.descricao}</div>
                   )}
                 </TD>
-                <TD>{r.fornecedor?.nome ?? "—"}</TD>
+                <TD>
+                  {r.fornecedor ? (
+                    <Link href={`/fornecedores/${r.fornecedorId}`} className="hover:text-primary">
+                      {r.fornecedor.nome}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
+                </TD>
                 <TD className="font-medium">{formatarMoeda(r.valor)}</TD>
                 <TD>
                   {r.status === "CONFERIDO" ? (
