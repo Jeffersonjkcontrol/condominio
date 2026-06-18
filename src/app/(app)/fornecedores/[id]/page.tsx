@@ -109,7 +109,12 @@ export default async function FornecedorDetalhePage({
             {fornecedor.servicos.map((s) => (
               <TR key={s.id}>
                 <TD>
-                  <div className="font-medium">{s.nome}</div>
+                  <Link
+                    href={`/servicos/${s.id}`}
+                    className="font-medium hover:text-primary"
+                  >
+                    {s.nome}
+                  </Link>
                   {s.descricao && (
                     <div className="text-xs text-muted">{s.descricao}</div>
                   )}
