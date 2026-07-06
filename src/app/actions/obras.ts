@@ -272,6 +272,7 @@ export async function alternarSubEtapa(formData: FormData) {
     obraId
   );
   revalidatePath(`/obras/${obraId}`);
+  revalidatePath("/tarefas");
 }
 
 export async function excluirSubEtapa(formData: FormData) {

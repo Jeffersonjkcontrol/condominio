@@ -211,6 +211,7 @@ export async function alternarEtapaEvento(formData: FormData) {
     eventoId
   );
   revalidatePath(`/eventos/${eventoId}`);
+  revalidatePath("/tarefas");
 }
 
 export async function excluirEtapaEvento(formData: FormData) {

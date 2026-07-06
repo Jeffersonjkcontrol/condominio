@@ -195,6 +195,7 @@ export async function alternarSubOS(formData: FormData) {
     ordemId
   );
   revalidatePath(`/manutencao/${ordemId}`);
+  revalidatePath("/tarefas");
 }
 
 export async function excluirSubOS(formData: FormData) {

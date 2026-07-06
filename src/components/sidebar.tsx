@@ -16,6 +16,7 @@ import {
   History,
   Repeat,
   CalendarDays,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ type Item = {
 
 const itens: Item[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/tarefas", label: "Tarefas", icon: ListChecks },
   { href: "/eventos", label: "Eventos", icon: CalendarDays },
   { href: "/recibos", label: "Recibos", icon: ReceiptText },
   { href: "/recorrencias", label: "Contas fixas", icon: Repeat },
