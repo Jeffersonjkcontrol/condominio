@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Plus, Pencil, CalendarDays, MapPin, User2, Clock } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -157,7 +158,12 @@ export default async function EventosPage({
                   <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-foreground">{e.titulo}</span>
+                        <Link
+                          href={`/eventos/${e.id}`}
+                          className="font-semibold text-foreground hover:text-primary"
+                        >
+                          {e.titulo}
+                        </Link>
                         <Badge tone="info">{e.tipo}</Badge>
                         <Badge tone={STATUS_EVENTO_TONE[status]}>{STATUS_EVENTO_LABEL[status]}</Badge>
                       </div>

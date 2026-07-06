@@ -349,8 +349,24 @@ model Evento {
   criadoPorId String
   criadoPor   User   @relation("EventosCriados", fields: [criadoPorId], references: [id])
 
+  etapas EtapaEvento[]
+
   @@index([dataInicio])
   @@index([local])
+}
+
+/// Etapa de preparação de um evento (checklist até o dia do evento).
+model EtapaEvento {
+  id          String         @id @default(cuid())
+  titulo      String
+  descricao   String?
+  status      StatusSubEtapa @default(PENDENTE)
+  ordem       Int            @default(0)
+  concluidaEm DateTime?
+  criadoEm    DateTime       @default(now())
+
+  eventoId String
+  evento   Evento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
 }
 
 /// Rastreabilidade: registra todas as ações nos processos (quem, o quê, quando).

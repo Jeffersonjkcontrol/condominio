@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
@@ -131,4 +132,93 @@ export async function excluirEvento(formData: FormData) {
   await prisma.evento.delete({ where: { id } });
   if (e) await registrar("EXCLUIU", "Evento", e.titulo, id);
   revalidatePath("/eventos");
+  if (formData.get("redirecionar")) redirect("/eventos");
+}
+
+// ---- Etapas do evento (preparação até o dia) ----
+
+const etapaEventoSchema = z.object({
+  eventoId: z.string().min(1),
+  titulo: z.string().min(1, "Informe o título da etapa."),
+  descricao: z.string().optional(),
+  status: z.enum(["PENDENTE", "EM_ANDAMENTO", "CONCLUIDA"]).optional(),
+  ordem: z.coerce.number().optional(),
+});
+
+function lerEtapaEvento(formData: FormData) {
+  return etapaEventoSchema.parse({
+    eventoId: formData.get("eventoId"),
+    titulo: formData.get("titulo"),
+    descricao: formData.get("descricao") || undefined,
+    status: formData.get("status") || undefined,
+    ordem: formData.get("ordem") ?? 0,
+  });
+}
+
+export async function criarEtapaEvento(formData: FormData) {
+  await exigirGestor();
+  const d = lerEtapaEvento(formData);
+  const status = d.status ?? "PENDENTE";
+  await prisma.etapaEvento.create({
+    data: {
+      eventoId: d.eventoId,
+      titulo: d.titulo,
+      descricao: d.descricao,
+      status,
+      ordem: d.ordem ?? 0,
+      concluidaEm: status === "CONCLUIDA" ? new Date() : null,
+    },
+  });
+  await registrar("CRIOU", "Etapa do evento", d.titulo, d.eventoId);
+  revalidatePath(`/eventos/${d.eventoId}`);
+}
+
+export async function atualizarEtapaEvento(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const d = lerEtapaEvento(formData);
+  const status = d.status ?? "PENDENTE";
+  await prisma.etapaEvento.update({
+    where: { id },
+    data: {
+      titulo: d.titulo,
+      descricao: d.descricao,
+      status,
+      ordem: d.ordem ?? 0,
+      concluidaEm: status === "CONCLUIDA" ? new Date() : null,
+    },
+  });
+  await registrar(status === "CONCLUIDA" ? "CONCLUIU" : "EDITOU", "Etapa do evento", d.titulo, d.eventoId);
+  revalidatePath(`/eventos/${d.eventoId}`);
+}
+
+/** Alterna rapidamente o status de uma etapa do evento (Pendente ↔ Concluída). */
+export async function alternarEtapaEvento(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const eventoId = String(formData.get("eventoId"));
+  const etapa = await prisma.etapaEvento.findUnique({ where: { id } });
+  if (!etapa) return;
+  const novo = etapa.status === "CONCLUIDA" ? "PENDENTE" : "CONCLUIDA";
+  await prisma.etapaEvento.update({
+    where: { id },
+    data: { status: novo, concluidaEm: novo === "CONCLUIDA" ? new Date() : null },
+  });
+  await registrar(
+    novo === "CONCLUIDA" ? "CONCLUIU" : "EDITOU",
+    "Etapa do evento",
+    `${etapa.titulo} (${novo === "CONCLUIDA" ? "concluída" : "reaberta"})`,
+    eventoId
+  );
+  revalidatePath(`/eventos/${eventoId}`);
+}
+
+export async function excluirEtapaEvento(formData: FormData) {
+  await exigirGestor();
+  const id = String(formData.get("id"));
+  const eventoId = String(formData.get("eventoId"));
+  const etapa = await prisma.etapaEvento.findUnique({ where: { id } });
+  await prisma.etapaEvento.delete({ where: { id } });
+  if (etapa) await registrar("EXCLUIU", "Etapa do evento", etapa.titulo, eventoId);
+  revalidatePath(`/eventos/${eventoId}`);
 }
