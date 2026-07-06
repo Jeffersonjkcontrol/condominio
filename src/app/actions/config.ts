@@ -22,6 +22,8 @@ const schema = z.object({
   geminiApiKey: z.string().optional(),
   openaiApiKey: z.string().optional(),
   horasAvisoEvento: z.coerce.number().int().min(1).max(168),
+  nexusApiUrl: z.string().optional(),
+  nexusApiKey: z.string().optional(),
 });
 
 export async function salvarConfiguracao(formData: FormData) {
@@ -35,6 +37,8 @@ export async function salvarConfiguracao(formData: FormData) {
     geminiApiKey: (formData.get("geminiApiKey") as string) || undefined,
     openaiApiKey: (formData.get("openaiApiKey") as string) || undefined,
     horasAvisoEvento: formData.get("horasAvisoEvento"),
+    nexusApiUrl: (formData.get("nexusApiUrl") as string) || undefined,
+    nexusApiKey: (formData.get("nexusApiKey") as string) || undefined,
   });
 
   // Chave só é atualizada se um novo valor for informado (campo em branco mantém a atual).
@@ -47,6 +51,8 @@ export async function salvarConfiguracao(formData: FormData) {
     ...(d.claudeApiKey ? { claudeApiKey: d.claudeApiKey } : {}),
     ...(d.geminiApiKey ? { geminiApiKey: d.geminiApiKey } : {}),
     ...(d.openaiApiKey ? { openaiApiKey: d.openaiApiKey } : {}),
+    ...(d.nexusApiUrl ? { nexusApiUrl: d.nexusApiUrl } : {}),
+    ...(d.nexusApiKey ? { nexusApiKey: d.nexusApiKey } : {}),
   };
 
   await prisma.configuracao.upsert({
@@ -110,6 +116,8 @@ export async function removerChave(formData: FormData) {
       ? "geminiApiKey"
       : provedor === "openai"
       ? "openaiApiKey"
+      : provedor === "nexus"
+      ? "nexusApiKey"
       : null;
   if (!campo) throw new Error("Provedor inválido.");
 
@@ -119,4 +127,5 @@ export async function removerChave(formData: FormData) {
   });
   await registrar("EDITOU", "Configuração", `Removeu a chave do ${provedor}`);
   revalidatePath("/configuracoes");
+  revalidatePath("/", "layout");
 }

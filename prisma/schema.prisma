@@ -240,7 +240,24 @@ model Configuracao {
   // Antecedência (em horas) para avisar o responsável sobre eventos próximos
   horasAvisoEvento Int    @default(48)
 
+  // Integração com a plataforma IoT jkcontrol.online (NEXUS.CORE) — chave só no servidor
+  nexusApiUrl    String   @default("https://jkcontrol.online")
+  nexusApiKey    String?
+
   atualizadoEm   DateTime @updatedAt
+}
+
+/// Indicador externo (sensor da plataforma jkcontrol.online) exibido no Dashboard.
+/// Extensível: cada linha é um dado a mostrar (ex.: pressão da água).
+model IndicadorExterno {
+  id            String   @id @default(cuid())
+  nome          String
+  deviceLabel   String
+  variableLabel String
+  unidade       String?
+  ordem         Int      @default(0)
+  ativo         Boolean  @default(true)
+  criadoEm      DateTime @default(now())
 }
 
 /// Fatos/instruções permanentes que o Assistente IA deve lembrar em todas as conversas.

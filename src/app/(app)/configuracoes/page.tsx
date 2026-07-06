@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
-import { Building2, Sparkles, Check, X, Image as ImageIcon, Brain } from "lucide-react";
+import { Building2, Sparkles, Check, X, Image as ImageIcon, Brain, Gauge, Plus } from "lucide-react";
 import { auth } from "@/auth";
 import { ehAdmin } from "@/lib/permissoes";
 import { getConfiguracao } from "@/lib/config";
+import { testarConexaoNexus } from "@/lib/nexus";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { salvarConfiguracao, removerChave, salvarLogo, removerLogo } from "@/app/actions/config";
 import { criarMemoria, atualizarMemoria, excluirMemoria } from "@/app/actions/memorias";
+import { criarIndicador, atualizarIndicador, excluirIndicador } from "@/app/actions/indicadores";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -18,6 +20,8 @@ export default async function ConfiguracoesPage() {
 
   const config = await getConfiguracao();
   const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "desc" } });
+  const indicadores = await prisma.indicadorExterno.findMany({ orderBy: { ordem: "asc" } });
+  const conexaoNexus = config.nexusApiKey ? await testarConexaoNexus() : null;
 
   const provedores = [
     {
@@ -256,6 +260,54 @@ export default async function ConfiguracoesPage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-primary" /> Indicadores externos (jkcontrol.online)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted">
+              Conexão com a plataforma IoT para exibir sensores no Dashboard (ex.: pressão da água).
+              Use uma <strong>API Key</strong> com papel <strong>viewer</strong> (só leitura). A chave
+              fica apenas no servidor. Deixe em branco para manter a atual.
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="nexusApiUrl">URL da plataforma</Label>
+                <Input id="nexusApiUrl" name="nexusApiUrl" defaultValue={config.nexusApiUrl} />
+              </div>
+              <div>
+                <Label htmlFor="nexusApiKey">API Key (viewer)</Label>
+                <Input
+                  id="nexusApiKey"
+                  name="nexusApiKey"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={config.nexusApiKey ? "•••••••• (mantém a atual)" : "Cole a API Key (ag_…)"}
+                />
+              </div>
+            </div>
+            <div>
+              {conexaoNexus ? (
+                conexaoNexus.ok ? (
+                  <Badge tone="success">
+                    <Check className="mr-1 h-3 w-3" /> {conexaoNexus.mensagem}
+                  </Badge>
+                ) : (
+                  <Badge tone="danger">
+                    <X className="mr-1 h-3 w-3" /> {conexaoNexus.mensagem}
+                  </Badge>
+                )
+              ) : (
+                <Badge tone="default">
+                  <X className="mr-1 h-3 w-3" /> Sem chave
+                </Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="flex justify-end">
           <Button type="submit">Salvar configurações</Button>
         </div>
@@ -273,7 +325,75 @@ export default async function ConfiguracoesPage() {
               </Button>
             </form>
           ))}
+        {config.nexusApiKey && (
+          <form action={removerChave}>
+            <input type="hidden" name="provedor" value="nexus" />
+            <Button type="submit" variant="outline" size="sm">
+              Remover API Key (jkcontrol.online)
+            </Button>
+          </form>
+        )}
       </div>
+
+      {/* Indicadores externos — sensores exibidos no Dashboard */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="h-5 w-5 text-primary" /> Sensores exibidos no Dashboard
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted">
+            Cada item vira um card no Dashboard com o valor atual do sensor. Informe o{" "}
+            <strong>deviceLabel</strong> e o <strong>variableLabel</strong> exatamente como na plataforma.
+          </p>
+
+          <form action={criarIndicador} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+            <Input name="nome" required placeholder="Nome (ex.: Pressão da água)" className="sm:col-span-2" />
+            <Input name="deviceLabel" required placeholder="deviceLabel" className="sm:col-span-2" />
+            <Input name="variableLabel" required placeholder="variableLabel" />
+            <div className="flex gap-2">
+              <Input name="unidade" placeholder="un." className="w-16" />
+              <Button type="submit">
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </form>
+
+          {indicadores.length === 0 ? (
+            <p className="text-sm text-muted">Nenhum sensor cadastrado ainda.</p>
+          ) : (
+            <ul className="space-y-2">
+              {indicadores.map((ind) => (
+                <li key={ind.id} className="rounded-lg border border-border p-3">
+                  <form action={atualizarIndicador} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+                    <input type="hidden" name="id" value={ind.id} />
+                    <Input name="nome" defaultValue={ind.nome} className="sm:col-span-2" />
+                    <Input name="deviceLabel" defaultValue={ind.deviceLabel} className="sm:col-span-2" />
+                    <Input name="variableLabel" defaultValue={ind.variableLabel} />
+                    <div className="flex gap-2">
+                      <Input name="unidade" defaultValue={ind.unidade ?? ""} className="w-16" />
+                      <Button type="submit" variant="outline" size="sm">
+                        Salvar
+                      </Button>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-muted sm:col-span-6">
+                      <input type="checkbox" name="ativo" defaultChecked={ind.ativo} /> Ativo (aparece no
+                      Dashboard)
+                    </label>
+                  </form>
+                  <form action={excluirIndicador} className="mt-2">
+                    <input type="hidden" name="id" value={ind.id} />
+                    <Button type="submit" variant="outline" size="sm">
+                      Excluir
+                    </Button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

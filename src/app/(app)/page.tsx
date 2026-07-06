@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
+import { buscarIndicadores } from "@/lib/nexus";
+import { IndicadoresExternos } from "@/components/indicadores-externos";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { GastosPorCategoria, GastosPorMes } from "@/components/charts";
@@ -68,9 +70,10 @@ export default async function DashboardPage() {
   const hoje = new Date();
   const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
 
-  const [recibos, obras] = await Promise.all([
+  const [recibos, obras, indicadores] = await Promise.all([
     prisma.recibo.findMany({ include: { fornecedor: { select: { nome: true } } } }),
     prisma.obra.findMany({ include: { etapas: true } }),
+    buscarIndicadores(),
   ]);
 
   // KPIs
@@ -128,6 +131,8 @@ export default async function DashboardPage() {
         </h1>
         <p className="text-sm text-muted">Visão geral da gestão do condomínio.</p>
       </div>
+
+      <IndicadoresExternos iniciais={indicadores} />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi titulo="Gastos no mês" valor={formatarMoeda(gastoMes)} icon={Wallet} href="/recibos" />
