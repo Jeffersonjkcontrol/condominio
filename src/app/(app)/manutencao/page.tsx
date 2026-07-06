@@ -153,6 +153,7 @@ export default async function ManutencaoPage({
                   <TD>
                     <Link
                       href={`/manutencao/${os.id}`}
+                      title="Abrir e ver sub-OS"
                       className="group flex items-center gap-2 font-medium hover:text-primary"
                     >
                       <Wrench className="h-4 w-4 text-muted" />

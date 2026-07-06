@@ -98,7 +98,7 @@ export default async function ObrasPage({
                   )
                 : 0;
             return (
-              <Link key={o.id} href={`/obras/${o.id}`} className="group block">
+              <Link key={o.id} href={`/obras/${o.id}`} title="Abrir e ver etapas" className="group block">
                 <Card className="h-full transition-colors hover:border-primary">
                   <CardContent className="space-y-3">
                     <div className="flex items-start justify-between gap-2">

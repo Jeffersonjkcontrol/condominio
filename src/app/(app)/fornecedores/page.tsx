@@ -98,6 +98,7 @@ export default async function FornecedoresPage({
                 <TD>
                   <Link
                     href={`/fornecedores/${f.id}`}
+                    title="Abrir e ver serviços"
                     className="group flex items-center gap-2 font-medium hover:text-primary"
                   >
                     <Building2 className="h-4 w-4 text-muted" />
