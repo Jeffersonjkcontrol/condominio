@@ -21,11 +21,17 @@ function formatarValor(v: number | string | null): string {
   return String(v);
 }
 
-function hora(ts: string | null): string | null {
+function quando(ts: string | null): string | null {
   if (!ts) return null;
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function IndicadoresExternos({ iniciais }: { iniciais: Leitura[] }) {
@@ -53,7 +59,7 @@ export function IndicadoresExternos({ iniciais }: { iniciais: Leitura[] }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {dados.map((d) => {
-        const h = hora(d.timestamp);
+        const q = quando(d.timestamp);
         return (
           <Card key={d.id}>
             <CardContent className="flex items-center gap-4">
@@ -75,7 +81,7 @@ export function IndicadoresExternos({ iniciais }: { iniciais: Leitura[] }) {
                   </p>
                 )}
                 <p className="text-xs text-muted">
-                  {d.erro ? d.erro : h ? `atualizado às ${h}` : "ao vivo"}
+                  {d.erro ? d.erro : q ? `atualizado em ${q}` : "ao vivo"}
                 </p>
               </div>
             </CardContent>
