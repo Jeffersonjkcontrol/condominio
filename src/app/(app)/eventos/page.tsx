@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Pencil, CalendarDays, MapPin, User2, Clock } from "lucide-react";
+import { Plus, Pencil, CalendarDays, MapPin, User2, Clock, ArrowRight } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
@@ -160,9 +160,11 @@ export default async function EventosPage({
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`/eventos/${e.id}`}
-                          className="font-semibold text-foreground hover:text-primary"
+                          className="group inline-flex items-center gap-1 font-semibold text-foreground hover:text-primary"
+                          title="Abrir e ver etapas"
                         >
                           {e.titulo}
+                          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                         </Link>
                         <Badge tone="info">{e.tipo}</Badge>
                         <Badge tone={STATUS_EVENTO_TONE[status]}>{STATUS_EVENTO_LABEL[status]}</Badge>
