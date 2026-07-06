@@ -66,20 +66,34 @@ function extrair(snapshot: unknown, deviceLabel: string, variableLabel: string) 
     }
   }
 
-  // Formato B: array de devices, cada um com `variables` (ou `data`/`vars`)
+  // Formato B (o real do jkcontrol.online): array de devices, cada um com `variables`
+  // sendo um OBJETO { [variableLabel]: { value, timestamp, time, ... } }.
+  const leituraDe = (v: any) => ({
+    valor:
+      v != null && typeof v === "object"
+        ? valOf(v, ["value", "lastValue", "currentValue", "valor"])
+        : (v ?? null),
+    timestamp:
+      v != null && typeof v === "object"
+        ? strOf(v, ["timestamp", "lastUpdate", "updatedAt", "time"]) ?? null
+        : null,
+    unidade: v != null && typeof v === "object" ? strOf(v, ["unit", "unidade"]) ?? null : null,
+  });
+
   for (const dev of arr) {
     const dl = strOf(dev, ["label", "deviceLabel", "name", "_id"]);
     if (dl !== deviceLabel) continue;
-    const vars = comoArray(dev.variables ?? dev.data ?? dev.vars);
-    for (const v of vars) {
+    const varsRaw = dev.variables ?? dev.data ?? dev.vars;
+
+    // Objeto (mapa por nome de variável) — formato real
+    if (varsRaw && typeof varsRaw === "object" && !Array.isArray(varsRaw)) {
+      const v = (varsRaw as Record<string, unknown>)[variableLabel];
+      if (v != null) return leituraDe(v);
+    }
+    // Fallback: `variables` como array de objetos com label/name
+    for (const v of comoArray(varsRaw)) {
       const vl = strOf(v, ["label", "variableLabel", "name"]);
-      if (vl === variableLabel) {
-        return {
-          valor: valOf(v, ["value", "lastValue", "currentValue", "valor"]),
-          timestamp: strOf(v, ["timestamp", "lastUpdate", "updatedAt", "time"]) ?? null,
-          unidade: strOf(v, ["unit", "unidade"]) ?? null,
-        };
-      }
+      if (vl === variableLabel) return leituraDe(v);
     }
   }
   return null;
@@ -135,8 +149,9 @@ export async function testarConexaoNexus(): Promise<{ ok: boolean; mensagem: str
   const config = await getConfiguracao();
   if (!config.nexusApiKey) return { ok: false, mensagem: "Sem API Key" };
   try {
+    // Usa /api/devices/data (aceita API Key). O /api/users/profile só aceita token de login.
     const base = config.nexusApiUrl.replace(/\/+$/, "");
-    const resp = await fetch(`${base}/api/users/profile`, {
+    const resp = await fetch(`${base}/api/devices/data`, {
       headers: { Authorization: `Bearer ${config.nexusApiKey}` },
       next: { revalidate: 30 },
     });
