@@ -3,7 +3,7 @@ import { Building2, Sparkles, Check, X, Image as ImageIcon, Brain, Gauge, Plus }
 import { auth } from "@/auth";
 import { ehAdmin } from "@/lib/permissoes";
 import { getConfiguracao } from "@/lib/config";
-import { testarConexaoNexus } from "@/lib/nexus";
+import { testarConexaoNexus, listarDevices } from "@/lib/nexus";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { salvarConfiguracao, removerChave, salvarLogo, removerLogo } from "@/app/actions/config";
 import { criarMemoria, atualizarMemoria, excluirMemoria } from "@/app/actions/memorias";
 import { criarIndicador, atualizarIndicador, excluirIndicador } from "@/app/actions/indicadores";
+import { IndicadorNovoForm } from "@/components/forms/indicador-novo-form";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -22,6 +23,7 @@ export default async function ConfiguracoesPage() {
   const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "desc" } });
   const indicadores = await prisma.indicadorExterno.findMany({ orderBy: { ordem: "asc" } });
   const conexaoNexus = config.nexusApiKey ? await testarConexaoNexus() : null;
+  const catalogoDevices = config.nexusApiKey ? await listarDevices() : [];
 
   const provedores = [
     {
@@ -348,17 +350,28 @@ export default async function ConfiguracoesPage() {
             <strong>deviceLabel</strong> e o <strong>variableLabel</strong> exatamente como na plataforma.
           </p>
 
-          <form action={criarIndicador} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
-            <Input name="nome" required placeholder="Nome (ex.: Pressão da água)" className="sm:col-span-2" />
-            <Input name="deviceLabel" required placeholder="deviceLabel" className="sm:col-span-2" />
-            <Input name="variableLabel" required placeholder="variableLabel" />
-            <div className="flex gap-2">
-              <Input name="unidade" placeholder="un." className="w-16" />
-              <Button type="submit">
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-          </form>
+          {catalogoDevices.length > 0 ? (
+            <IndicadorNovoForm action={criarIndicador} devices={catalogoDevices} />
+          ) : (
+            <>
+              <p className="text-xs text-muted">
+                {config.nexusApiKey
+                  ? "Nenhum device encontrado na plataforma (confira a conexão acima)."
+                  : "Configure e salve a API Key acima para escolher os sensores em menus."}
+              </p>
+              <form action={criarIndicador} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+                <Input name="nome" required placeholder="Nome (ex.: Pressão da água)" className="sm:col-span-2" />
+                <Input name="deviceLabel" required placeholder="deviceLabel" className="sm:col-span-2" />
+                <Input name="variableLabel" required placeholder="variableLabel" />
+                <div className="flex gap-2">
+                  <Input name="unidade" placeholder="un." className="w-16" />
+                  <Button type="submit">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </form>
+            </>
+          )}
 
           {indicadores.length === 0 ? (
             <p className="text-sm text-muted">Nenhum sensor cadastrado ainda.</p>

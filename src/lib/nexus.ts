@@ -144,6 +144,38 @@ export async function buscarIndicadores(): Promise<LeituraIndicador[]> {
   });
 }
 
+export type DeviceCatalogo = { label: string; name: string; variaveis: string[] };
+
+/** Lista os devices e suas variáveis disponíveis na plataforma (para os menus do admin). */
+export async function listarDevices(): Promise<DeviceCatalogo[]> {
+  const config = await getConfiguracao();
+  if (!config.nexusApiKey) return [];
+  try {
+    const snapshot = await buscarSnapshot({
+      nexusApiUrl: config.nexusApiUrl,
+      nexusApiKey: config.nexusApiKey,
+    });
+    return comoArray(snapshot)
+      .map((dev) => {
+        const label = strOf(dev, ["label", "deviceLabel", "name", "_id"]) ?? "";
+        const name = strOf(dev, ["name"]) ?? label;
+        const varsRaw = dev.variables ?? dev.data ?? dev.vars;
+        let variaveis: string[] = [];
+        if (varsRaw && typeof varsRaw === "object" && !Array.isArray(varsRaw)) {
+          variaveis = Object.keys(varsRaw);
+        } else {
+          variaveis = comoArray(varsRaw)
+            .map((v) => strOf(v, ["label", "variableLabel", "name"]) ?? "")
+            .filter(Boolean);
+        }
+        return { label, name, variaveis };
+      })
+      .filter((d) => d.label);
+  } catch {
+    return [];
+  }
+}
+
 /** Testa a conectividade/credencial (para a tela de Configurações). */
 export async function testarConexaoNexus(): Promise<{ ok: boolean; mensagem: string }> {
   const config = await getConfiguracao();
