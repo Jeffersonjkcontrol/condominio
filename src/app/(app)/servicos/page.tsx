@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Pencil, Wrench } from "lucide-react";
+import { Plus, Pencil, Wrench, ArrowRight } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { podeEditar } from "@/lib/permissoes";
@@ -100,10 +100,11 @@ export default async function ServicosPage({
                 <TD>
                   <Link
                     href={`/servicos/${s.id}`}
-                    className="flex items-center gap-2 font-medium hover:text-primary"
+                    className="group flex items-center gap-2 font-medium hover:text-primary"
                   >
                     <Wrench className="h-4 w-4 text-muted" />
                     {s.nome}
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                   </Link>
                 </TD>
                 <TD>

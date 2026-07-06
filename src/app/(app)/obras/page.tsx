@@ -98,13 +98,14 @@ export default async function ObrasPage({
                   )
                 : 0;
             return (
-              <Link key={o.id} href={`/obras/${o.id}`}>
+              <Link key={o.id} href={`/obras/${o.id}`} className="group block">
                 <Card className="h-full transition-colors hover:border-primary">
                   <CardContent className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <HardHat className="h-5 w-5 text-muted" />
-                        <span className="font-semibold text-foreground">{o.titulo}</span>
+                        <span className="font-semibold text-foreground group-hover:text-primary">{o.titulo}</span>
+                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                       </div>
                       <Badge tone={STATUS_OBRA_TONE[status]}>
                         {STATUS_OBRA_LABEL[status]}

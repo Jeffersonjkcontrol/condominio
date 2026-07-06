@@ -1,4 +1,4 @@
-import { Plus, Pencil, Building2 } from "lucide-react";
+import { Plus, Pencil, Building2, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
@@ -98,10 +98,11 @@ export default async function FornecedoresPage({
                 <TD>
                   <Link
                     href={`/fornecedores/${f.id}`}
-                    className="flex items-center gap-2 font-medium hover:text-primary"
+                    className="group flex items-center gap-2 font-medium hover:text-primary"
                   >
                     <Building2 className="h-4 w-4 text-muted" />
                     {f.nome}
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                   </Link>
                   {f.cnpjCpf && (
                     <span className="text-xs text-muted">{f.cnpjCpf}</span>

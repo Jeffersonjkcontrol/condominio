@@ -153,10 +153,11 @@ export default async function ManutencaoPage({
                   <TD>
                     <Link
                       href={`/manutencao/${os.id}`}
-                      className="flex items-center gap-2 font-medium hover:text-primary"
+                      className="group flex items-center gap-2 font-medium hover:text-primary"
                     >
                       <Wrench className="h-4 w-4 text-muted" />
                       {os.titulo}
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                     </Link>
                     {os.local && <span className="text-xs text-muted">{os.local}</span>}
                   </TD>
