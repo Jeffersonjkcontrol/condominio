@@ -18,7 +18,7 @@ import { statusCalculadoOS, progressoOS } from "@/lib/manutencao";
 import { statusCalculadoEvento } from "@/lib/eventos";
 import { PAPEL_LABEL } from "@/lib/permissoes";
 import { foraDeEscopo, mensagemRecusa } from "@/lib/escopo";
-import { buscarIndicadores } from "@/lib/nexus";
+import { buscarIndicadores, analisarHistorico24h } from "@/lib/nexus";
 
 /** Cria a conversa (se nova) e grava o par usuário/assistente. Retorna o id da conversa. */
 async function persistir(
@@ -102,17 +102,39 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
   const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "asc" } });
   const memoriasTxt = memorias.map((m) => `- ${m.conteudo}`).join("\n");
 
-  // Sensores ao vivo (indicadores externos — plataforma de monitoramento jkcontrol.online)
-  const sensores = await buscarIndicadores();
-  const sensoresTxt = sensores
-    .map((s) =>
-      s.erro
-        ? `- ${s.nome}: indisponível (${s.erro})`
-        : `- ${s.nome}: ${s.valor}${s.unidade ? ` ${s.unidade}` : ""}${
-            s.timestamp ? ` (leitura em ${formatarDataHora(s.timestamp)})` : ""
-          }`
-    )
-    .join("\n");
+  // Sensores ao vivo + resumo 24h — permite à IA identificar quedas (ex.: pressão zerada = falta de água)
+  const [sensores, indicadoresCfg] = await Promise.all([
+    buscarIndicadores(),
+    prisma.indicadorExterno.findMany({ where: { ativo: true } }),
+  ]);
+  const linhasSensores = await Promise.all(
+    sensores.map(async (s) => {
+      if (s.erro) return `- ${s.nome}: indisponível (${s.erro})`;
+      const un = s.unidade ? ` ${s.unidade}` : "";
+      let linha = `- ${s.nome}: ${s.valor}${un}${
+        s.timestamp ? ` (leitura em ${formatarDataHora(s.timestamp)})` : ""
+      }`;
+      const cfg = indicadoresCfg.find((i) => i.id === s.id);
+      const analise = cfg ? await analisarHistorico24h(cfg.deviceLabel, cfg.variableLabel) : null;
+      if (analise) {
+        const n = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
+        linha += `\n    · Últimas 24h: mín ${n(analise.min)}, máx ${n(analise.max)}, média ${n(analise.media)}${un}`;
+        if (analise.episodiosZero.length > 0) {
+          const mostrar = analise.episodiosZero.slice(0, 6);
+          const periodos = mostrar
+            .map((e) => `${formatarDataHora(e.inicio)} a ${formatarDataHora(e.fim)}`)
+            .join("; ");
+          const extra =
+            analise.episodiosZero.length > mostrar.length
+              ? ` (e mais ${analise.episodiosZero.length - mostrar.length})`
+              : "";
+          linha += `\n    · ATENÇÃO: valor ZERADO em ${analise.episodiosZero.length} período(s), ~${analise.minutosZero} min no total: ${periodos}${extra}. Em sensor de pressão de água, isso indica FALTA DE ÁGUA nesses períodos.`;
+        }
+      }
+      return linha;
+    })
+  );
+  const sensoresTxt = linhasSensores.join("\n");
 
   // ---- Financeiro ----
   const gastoMes = recibos
@@ -409,7 +431,9 @@ atualidades, tradução, etc.).
 Responda sempre em português do Brasil, de forma objetiva e prática.
 Use os dados abaixo como base factual quando a pergunta for sobre o condomínio.
 A seção "SENSORES / MONITORAMENTO AO VIVO" traz leituras em tempo real de sensores do condomínio
-(ex.: pressão da água) — use-a para responder sobre o estado atual desses equipamentos.
+(ex.: pressão da água) e um resumo das últimas 24h. Ao responder sobre um sensor, NÃO olhe só o valor
+atual: se houver períodos com valor ZERADO nas últimas 24h, aponte-os proativamente — em pressão de
+água, pressão zerada significa FALTA DE ÁGUA naquele período.
 Quando o usuário pedir um relatório, PDF ou prestação de contas, use a ferramenta "gerar_relatorio"
 e, depois, confirme em uma frase curta que o PDF foi gerado.${
     isAdmin

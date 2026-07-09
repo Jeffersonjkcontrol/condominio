@@ -197,6 +197,50 @@ export async function testarConexaoNexus(): Promise<{ ok: boolean; mensagem: str
 
 export type PontoHistorico = { t: string; v: number };
 
+export type AnaliseSensor = {
+  min: number;
+  max: number;
+  media: number;
+  /** Períodos em que o valor ficou (praticamente) zerado — ex.: falta de água num sensor de pressão. */
+  episodiosZero: { inicio: string; fim: string }[];
+  minutosZero: number;
+};
+
+/** Resume as últimas 24h de um sensor: mín/máx/média + períodos com valor zerado.
+ *  Usado para dar contexto histórico à IA. Nunca lança (sem dados → null). */
+export async function analisarHistorico24h(
+  deviceLabel: string,
+  variableLabel: string
+): Promise<AnaliseSensor | null> {
+  const { pontos } = await buscarHistorico(deviceLabel, variableLabel, 24);
+  if (pontos.length === 0) return null;
+
+  const vs = pontos.map((p) => p.v);
+  const min = Math.min(...vs);
+  const max = Math.max(...vs);
+  const media = vs.reduce((s, v) => s + v, 0) / vs.length;
+
+  // "Zerado" = abaixo de 2% do máximo (mínimo 0.5) — tolera ruído do sensor e do downsample.
+  const limiar = Math.max(0.5, max * 0.02);
+  const episodios: { inicio: string; fim: string }[] = [];
+  let atual: { inicio: string; fim: string } | null = null;
+  for (const p of pontos) {
+    if (p.v <= limiar) {
+      if (!atual) atual = { inicio: p.t, fim: p.t };
+      else atual.fim = p.t;
+    } else if (atual) {
+      episodios.push(atual);
+      atual = null;
+    }
+  }
+  if (atual) episodios.push(atual);
+
+  const minutosZero = Math.round(
+    episodios.reduce((s, e) => s + (Date.parse(e.fim) - Date.parse(e.inicio)) / 60_000, 0)
+  );
+  return { min, max, media, episodiosZero: episodios, minutosZero };
+}
+
 const MAX_PAGINAS_HIST = 6; // ~6.000 leituras no máximo por consulta
 const ALVO_PONTOS = 240; // downsample: gráfico leve mesmo em 7 dias
 
