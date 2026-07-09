@@ -18,6 +18,7 @@ import { statusCalculadoOS, progressoOS } from "@/lib/manutencao";
 import { statusCalculadoEvento } from "@/lib/eventos";
 import { PAPEL_LABEL } from "@/lib/permissoes";
 import { foraDeEscopo, mensagemRecusa } from "@/lib/escopo";
+import { buscarIndicadores } from "@/lib/nexus";
 
 /** Cria a conversa (se nova) e grava o par usuário/assistente. Retorna o id da conversa. */
 async function persistir(
@@ -100,6 +101,18 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
   // Memórias permanentes (fatos/instruções que o assistente deve sempre lembrar)
   const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "asc" } });
   const memoriasTxt = memorias.map((m) => `- ${m.conteudo}`).join("\n");
+
+  // Sensores ao vivo (indicadores externos — plataforma de monitoramento jkcontrol.online)
+  const sensores = await buscarIndicadores();
+  const sensoresTxt = sensores
+    .map((s) =>
+      s.erro
+        ? `- ${s.nome}: indisponível (${s.erro})`
+        : `- ${s.nome}: ${s.valor}${s.unidade ? ` ${s.unidade}` : ""}${
+            s.timestamp ? ` (leitura em ${formatarDataHora(s.timestamp)})` : ""
+          }`
+    )
+    .join("\n");
 
   // ---- Financeiro ----
   const gastoMes = recibos
@@ -229,6 +242,9 @@ Use estes dados como base factual. "Obras" (reformas/construções com cronogram
 
 == MEMÓRIAS / INSTRUÇÕES PERMANENTES (fatos que você DEVE sempre lembrar e respeitar) ==
 ${memoriasTxt || "nenhuma memória cadastrada ainda"}
+
+== SENSORES / MONITORAMENTO AO VIVO (${sensores.length}) — leituras em tempo real ==
+${sensoresTxt || "nenhum sensor configurado"}
 
 == FINANCEIRO ==
 Gasto no mês: ${formatarMoeda(gastoMes)} | Gasto total: ${formatarMoeda(gastoTotal)}
@@ -392,6 +408,8 @@ usuário a reformular dentro desse escopo — não responda assuntos fora disso 
 atualidades, tradução, etc.).
 Responda sempre em português do Brasil, de forma objetiva e prática.
 Use os dados abaixo como base factual quando a pergunta for sobre o condomínio.
+A seção "SENSORES / MONITORAMENTO AO VIVO" traz leituras em tempo real de sensores do condomínio
+(ex.: pressão da água) — use-a para responder sobre o estado atual desses equipamentos.
 Quando o usuário pedir um relatório, PDF ou prestação de contas, use a ferramenta "gerar_relatorio"
 e, depois, confirme em uma frase curta que o PDF foi gerado.${
     isAdmin

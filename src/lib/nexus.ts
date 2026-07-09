@@ -194,3 +194,80 @@ export async function testarConexaoNexus(): Promise<{ ok: boolean; mensagem: str
     return { ok: false, mensagem: "Sem conexão" };
   }
 }
+
+export type PontoHistorico = { t: string; v: number };
+
+const MAX_PAGINAS_HIST = 6; // ~6.000 leituras no máximo por consulta
+const ALVO_PONTOS = 240; // downsample: gráfico leve mesmo em 7 dias
+
+/** Histórico de uma variável na janela das últimas `horas`. Nunca lança (erro → vazio).
+ *  Busca paginada (página 1 = leituras mais recentes) + média por bucket de tempo. */
+export async function buscarHistorico(
+  deviceLabel: string,
+  variableLabel: string,
+  horas: number
+): Promise<{ pontos: PontoHistorico[]; total: number }> {
+  const config = await getConfiguracao();
+  if (!config.nexusApiKey) return { pontos: [], total: 0 };
+
+  const base = (config.nexusApiUrl || "https://jkcontrol.online").replace(/\/+$/, "");
+  // Fim arredondado para 5 min: a URL fica estável e o cache do fetch (60s) é aproveitado.
+  const fimMs = Math.floor(Date.now() / 300_000) * 300_000;
+  const inicioMs = fimMs - horas * 3_600_000;
+  const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 19);
+
+  const brutos: { t: number; v: number }[] = [];
+  let total = 0;
+  try {
+    for (let page = 1; page <= MAX_PAGINAS_HIST; page++) {
+      const url =
+        `${base}/api/devices/${encodeURIComponent(deviceLabel)}/variables/` +
+        `${encodeURIComponent(variableLabel)}/data?page=${page}&perPage=1000` +
+        `&startDate=${fmt(inicioMs)}&endDate=${fmt(fimMs)}`;
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${config.nexusApiKey}` },
+        next: { revalidate: 60 },
+      });
+      if (!resp.ok) break;
+      const j = (await resp.json()) as {
+        data?: { timestamp?: string; value?: unknown }[];
+        totalItems?: number;
+        totalPages?: number;
+      };
+      total = j.totalItems ?? total;
+      for (const it of j.data ?? []) {
+        const t = it.timestamp ? Date.parse(it.timestamp) : NaN;
+        const v = typeof it.value === "number" ? it.value : Number(it.value);
+        if (!Number.isNaN(t) && Number.isFinite(v)) brutos.push({ t, v });
+      }
+      if (!j.totalPages || page >= j.totalPages) break;
+    }
+  } catch {
+    /* plataforma indisponível → devolve o que tiver (possivelmente nada) */
+  }
+
+  brutos.sort((a, b) => a.t - b.t);
+  if (brutos.length <= ALVO_PONTOS) {
+    return { pontos: brutos.map((p) => ({ t: new Date(p.t).toISOString(), v: p.v })), total };
+  }
+
+  // Média por bucket de tempo (mantém a forma da curva com poucos pontos)
+  const primeiro = brutos[0].t;
+  const ultimo = brutos[brutos.length - 1].t;
+  const passo = Math.max(1, Math.ceil((ultimo - primeiro) / ALVO_PONTOS));
+  const buckets = new Map<number, { soma: number; n: number }>();
+  for (const p of brutos) {
+    const b = Math.floor((p.t - primeiro) / passo);
+    const cur = buckets.get(b) ?? { soma: 0, n: 0 };
+    cur.soma += p.v;
+    cur.n++;
+    buckets.set(b, cur);
+  }
+  const pontos = [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([b, { soma, n }]) => ({
+      t: new Date(primeiro + b * passo + passo / 2).toISOString(),
+      v: soma / n,
+    }));
+  return { pontos, total };
+}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Gauge, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { Gauge, AlertTriangle, ArrowRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 export type Leitura = {
@@ -61,8 +62,14 @@ export function IndicadoresExternos({ iniciais }: { iniciais: Leitura[] }) {
       {dados.map((d) => {
         const q = quando(d.timestamp);
         return (
-          <Card key={d.id}>
-            <CardContent className="flex items-center gap-4">
+          <Link
+            key={d.id}
+            href={`/indicadores/${d.id}`}
+            title="Abrir e ver histórico"
+            className="group block"
+          >
+            <Card className="h-full transition-colors hover:border-primary">
+              <CardContent className="flex items-center gap-4">
               <div
                 className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
                   d.erro ? "bg-warning/15 text-warning" : "bg-primary/15 text-primary"
@@ -84,8 +91,10 @@ export function IndicadoresExternos({ iniciais }: { iniciais: Leitura[] }) {
                   {d.erro ? d.erro : q ? `atualizado em ${q}` : "ao vivo"}
                 </p>
               </div>
-            </CardContent>
-          </Card>
+              <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+              </CardContent>
+            </Card>
+          </Link>
         );
       })}
     </div>
