@@ -28,6 +28,18 @@ export function formatarDataHora(data: Date | string | null | undefined): string
   }).format(d);
 }
 
+/** Formata um INSTANTE real (ex.: leitura de sensor) sempre no fuso de Brasília.
+ *  Necessário no servidor de produção, que roda em UTC (+3h). */
+export function formatarDataHoraBR(data: Date | string | null | undefined): string {
+  if (!data) return "—";
+  const d = typeof data === "string" ? new Date(data) : data;
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(d);
+}
+
 /** Converte Date para o valor de um <input type="date"> (yyyy-mm-dd) */
 export function paraInputDate(data: Date | string | null | undefined): string {
   if (!data) return "";

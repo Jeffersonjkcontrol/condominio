@@ -12,7 +12,7 @@ import {
   type ExecutorFerramenta,
 } from "@/lib/ai-providers";
 import { type TipoRelatorio } from "@/lib/relatorios";
-import { formatarMoeda, formatarData, formatarDataHora } from "@/lib/utils";
+import { formatarMoeda, formatarData, formatarDataHora, formatarDataHoraBR } from "@/lib/utils";
 import { etapaAtrasada, diasAtraso, statusCalculadoObra } from "@/lib/obras";
 import { statusCalculadoOS, progressoOS } from "@/lib/manutencao";
 import { statusCalculadoEvento } from "@/lib/eventos";
@@ -112,7 +112,7 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
       if (s.erro) return `- ${s.nome}: indisponível (${s.erro})`;
       const un = s.unidade ? ` ${s.unidade}` : "";
       let linha = `- ${s.nome}: ${s.valor}${un}${
-        s.timestamp ? ` (leitura em ${formatarDataHora(s.timestamp)})` : ""
+        s.timestamp ? ` (leitura em ${formatarDataHoraBR(s.timestamp)})` : ""
       }`;
       const cfg = indicadoresCfg.find((i) => i.id === s.id);
       const analise = cfg ? await analisarHistorico24h(cfg.deviceLabel, cfg.variableLabel) : null;
@@ -122,7 +122,7 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
         if (analise.episodiosZero.length > 0) {
           const mostrar = analise.episodiosZero.slice(0, 6);
           const periodos = mostrar
-            .map((e) => `${formatarDataHora(e.inicio)} a ${formatarDataHora(e.fim)}`)
+            .map((e) => `${formatarDataHoraBR(e.inicio)} a ${formatarDataHoraBR(e.fim)}`)
             .join("; ");
           const extra =
             analise.episodiosZero.length > mostrar.length

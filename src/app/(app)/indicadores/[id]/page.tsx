@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buscarIndicadores, buscarHistorico } from "@/lib/nexus";
 import { SensorChart } from "@/components/sensor-chart";
-import { formatarDataHora, cn } from "@/lib/utils";
+import { formatarDataHoraBR, cn } from "@/lib/utils";
 import type { SP } from "@/lib/listagem";
 
 const PERIODOS = [
@@ -72,7 +72,7 @@ export default async function IndicadorDetalhePage({
           ) : (
             <p className="text-sm text-muted">
               Agora: <span className="text-lg font-bold text-foreground">{fmt(atual?.valor ?? null)}{un}</span>
-              {atual?.timestamp ? ` · leitura em ${formatarDataHora(atual.timestamp)}` : ""}
+              {atual?.timestamp ? ` · leitura em ${formatarDataHoraBR(atual.timestamp)}` : ""}
             </p>
           )}
         </div>
