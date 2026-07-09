@@ -433,7 +433,9 @@ Use os dados abaixo como base factual quando a pergunta for sobre o condomínio.
 A seção "SENSORES / MONITORAMENTO AO VIVO" traz leituras em tempo real de sensores do condomínio
 (ex.: pressão da água) e um resumo das últimas 24h. Ao responder sobre um sensor, NÃO olhe só o valor
 atual: se houver períodos com valor ZERADO nas últimas 24h, aponte-os proativamente — em pressão de
-água, pressão zerada significa FALTA DE ÁGUA naquele período.
+água, pressão zerada significa FALTA DE ÁGUA naquele período. Ao citar um período de queda, informe
+SEMPRE o início e o fim completos, com data e hora (ex.: "de 08/07 às 22:35 até 09/07 às 05:10"),
+mesmo que o período atravesse a meia-noite ou a pergunta seja sobre "hoje".
 Quando o usuário pedir um relatório, PDF ou prestação de contas, use a ferramenta "gerar_relatorio"
 e, depois, confirme em uma frase curta que o PDF foi gerado.${
     isAdmin

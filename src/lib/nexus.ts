@@ -43,6 +43,7 @@ async function buscarSnapshot(cfg: Cfg): Promise<unknown> {
   const resp = await fetch(`${base}/api/devices/data`, {
     headers: { Authorization: `Bearer ${cfg.nexusApiKey}` },
     next: { revalidate: 20 }, // compartilha 1 chamada por ~20s (não martela a API externa)
+    signal: AbortSignal.timeout(8_000), // plataforma travada não pode travar o app
   });
   if (resp.status === 401 || resp.status === 403) throw new Error("Chave inválida ou sem permissão");
   if (!resp.ok) throw new Error(`Falha na API (${resp.status})`);
@@ -186,6 +187,7 @@ export async function testarConexaoNexus(): Promise<{ ok: boolean; mensagem: str
     const resp = await fetch(`${base}/api/devices/data`, {
       headers: { Authorization: `Bearer ${config.nexusApiKey}` },
       next: { revalidate: 30 },
+      signal: AbortSignal.timeout(8_000),
     });
     if (resp.ok) return { ok: true, mensagem: "Conectado" };
     if (resp.status === 401 || resp.status === 403) return { ok: false, mensagem: "Chave inválida" };
@@ -271,6 +273,7 @@ export async function buscarHistorico(
       const resp = await fetch(url, {
         headers: { Authorization: `Bearer ${config.nexusApiKey}` },
         next: { revalidate: 60 },
+        signal: AbortSignal.timeout(10_000),
       });
       if (!resp.ok) break;
       const j = (await resp.json()) as {

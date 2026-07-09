@@ -3,10 +3,11 @@
 // (User.recebeNotificacoes = true), com deduplicação por (usuário, tipo, entidade).
 
 import { prisma } from "@/lib/prisma";
-import { formatarMoeda, formatarDataHora } from "@/lib/utils";
+import { formatarMoeda, formatarDataHora, formatarDataHoraBR } from "@/lib/utils";
 import { getConfiguracao } from "@/lib/config";
 import { statusCalculadoObra, etapaAtrasada } from "@/lib/obras";
 import { statusCalculadoOS } from "@/lib/manutencao";
+import { analisarHistorico24h } from "@/lib/nexus";
 
 let ultimaExecucao = 0;
 const INTERVALO_MS = 5 * 60 * 1000;
@@ -25,7 +26,18 @@ export const NOTIF_LABEL: Record<string, string> = {
   ORCAMENTO_ESTOURADO: "Orçamento estourado",
   CONTA_FIXA_PENDENTE: "Conta fixa pendente",
   EVENTO_PROXIMO: "Evento em breve",
+  SENSOR_ZERADO: "Alerta de sensor",
 };
+
+/** Dia (AAAA-MM-DD) de um instante no fuso de Brasília — chave de dedup do alerta de sensor. */
+function diaBR(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
 
 /** Coleta os eventos de alerta atuais (globais, independem do destinatário). */
 async function coletarEventos(hoje: Date): Promise<Evento[]> {
@@ -84,6 +96,31 @@ async function coletarEventos(hoje: Date): Promise<Evento[]> {
       mensagem: `${r.descricao ?? "Conta fixa"} — ${formatarMoeda(r.valor)} aguardando conferência.`,
       link: `/recibos`,
       entidadeId: r.id,
+    });
+  }
+
+  // Sensores zerados (ex.: pressão da água = falta de água). Um alerta por indicador/dia:
+  // cobre tanto "zerado agora" quanto o episódio da madrugada visto na manhã seguinte.
+  const indicadores = await prisma.indicadorExterno.findMany({ where: { ativo: true } });
+  for (const ind of indicadores) {
+    const analise = await analisarHistorico24h(ind.deviceLabel, ind.variableLabel);
+    if (!analise || analise.episodiosZero.length === 0) continue;
+    const ultimo = analise.episodiosZero[analise.episodiosZero.length - 1];
+    const fimMs = Date.parse(ultimo.fim);
+    const emCurso = hoje.getTime() - fimMs < 20 * 60 * 1000; // última leitura ainda zerada
+    const recente = hoje.getTime() - fimMs < 12 * 60 * 60 * 1000; // terminou nas últimas 12h
+    if (!emCurso && !recente) continue;
+    const minutos = Math.round((fimMs - Date.parse(ultimo.inicio)) / 60_000);
+    eventos.push({
+      tipo: "SENSOR_ZERADO",
+      titulo: `⚠️ ${ind.nome} zerado`,
+      mensagem: emCurso
+        ? `${ind.nome} está ZERADO desde ${formatarDataHoraBR(ultimo.inicio)}. Em pressão de água, indica falta de água.`
+        : `${ind.nome} ficou ZERADO de ${formatarDataHoraBR(ultimo.inicio)} até ${formatarDataHoraBR(
+            ultimo.fim
+          )} (~${minutos} min). Em pressão de água, indica falta de água no período.`,
+      link: `/indicadores/${ind.id}`,
+      entidadeId: `${ind.id}@${diaBR(ultimo.inicio)}`,
     });
   }
 
