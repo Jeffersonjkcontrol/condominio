@@ -10,7 +10,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "test:agua": "tsx scripts/teste-agua-calc.ts"
+    "test:agua": "tsx scripts/teste-agua-calc.ts && tsx scripts/teste-agua-relatorio.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RelatorioFinanceiroCard } from "@/components/relatorio-financeiro-card";
+import { RelatorioAguaCard } from "@/components/relatorio-agua-card";
+import { sensoresDeConsumo } from "@/lib/agua";
 
 function RelatorioCard({
   tipo,
@@ -41,14 +43,14 @@ function RelatorioCard({
 }
 
 export default async function RelatoriosPage() {
-  const session = await auth();
+  const [session, sensoresAgua] = await Promise.all([auth(), sensoresDeConsumo()]);
   const admin = ehAdmin(session?.user.papel);
 
   return (
     <div>
       <PageHeader
         titulo="Relatórios"
-        descricao="Gere relatórios em PDF prontos para imprimir ou compartilhar."
+        descricao="Gere relatórios em PDF (e Excel, no de água) prontos para imprimir ou compartilhar."
         acao={
           admin && (
             <Link href="/assistente">
@@ -62,6 +64,9 @@ export default async function RelatoriosPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <RelatorioFinanceiroCard />
+        {sensoresAgua.length > 0 && (
+          <RelatorioAguaCard sensores={sensoresAgua.map((s) => ({ id: s.id, nome: s.nome }))} />
+        )}
         <RelatorioCard
           tipo="obras"
           nome="Obras e atrasos"

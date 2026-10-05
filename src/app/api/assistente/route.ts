@@ -19,6 +19,10 @@ import { statusCalculadoEvento } from "@/lib/eventos";
 import { PAPEL_LABEL } from "@/lib/permissoes";
 import { foraDeEscopo, mensagemRecusa } from "@/lib/escopo";
 import { buscarIndicadores, analisarHistorico24h } from "@/lib/nexus";
+import { resumoAguaParaIA } from "@/lib/relatorio-agua";
+import { sensoresDeConsumo } from "@/lib/agua";
+import { resolverPeriodo } from "@/lib/agua-relatorio";
+import { diaBR } from "@/lib/agua-calc";
 
 /** Cria a conversa (se nova) e grava o par usuário/assistente. Retorna o id da conversa. */
 async function persistir(
@@ -135,6 +139,12 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
     })
   );
   const sensoresTxt = linhasSensores.join("\n");
+
+  // Consumo de água por dia (sensores de nível/hidrômetro) — mesmos números da página /agua e do PDF
+  const aguaTxt = await resumoAguaParaIA().catch((e) => {
+    console.error("resumoAguaParaIA:", e);
+    return "";
+  });
 
   // ---- Financeiro ----
   const gastoMes = recibos
@@ -268,6 +278,9 @@ ${memoriasTxt || "nenhuma memória cadastrada ainda"}
 == SENSORES / MONITORAMENTO AO VIVO (${sensores.length}) — leituras em tempo real ==
 ${sensoresTxt || "nenhum sensor configurado"}
 
+== CONSUMO DE ÁGUA (calculado por dia a partir do sensor de nível do reservatório) ==
+${aguaTxt || "nenhum sensor de consumo de água configurado"}
+
 == FINANCEIRO ==
 Gasto no mês: ${formatarMoeda(gastoMes)} | Gasto total: ${formatarMoeda(gastoTotal)}
 Recibos: ${recibos.length} (${pendentes} pendentes) | Gastos por categoria: ${categoriasTxt || "nenhum"}
@@ -313,24 +326,54 @@ const NOME_REL: Record<string, string> = {
 const FERRAMENTA_RELATORIO: Ferramenta = {
   name: "gerar_relatorio",
   description:
-    "Gera um relatório do condomínio em PDF (financeiro, obras, manutenção, fornecedores, auditoria ou prestação de contas geral). Use quando o usuário pedir um relatório, PDF ou prestação de contas.",
+    "Gera um relatório do condomínio em PDF (financeiro, obras, manutenção, fornecedores, auditoria, prestação de contas geral ou consumo de água). Use quando o usuário pedir um relatório, PDF ou prestação de contas.",
   parameters: {
     type: "object",
     properties: {
       tipo: {
         type: "string",
-        enum: ["financeiro", "obras", "fornecedores", "geral", "manutencao", "auditoria"],
+        enum: ["financeiro", "obras", "fornecedores", "geral", "manutencao", "auditoria", "agua"],
         description:
-          "Tipo do relatório: financeiro (recibos/gastos), obras (cronograma e atrasos), manutencao (ordens de serviço), fornecedores, auditoria (rastreabilidade), geral (prestação de contas).",
+          "Tipo do relatório: financeiro (recibos/gastos), obras (cronograma e atrasos), manutencao (ordens de serviço), fornecedores, auditoria (rastreabilidade), geral (prestação de contas), agua (consumo de água do reservatório: total, média, ranking de dias, padrões, qualidade do sensor).",
       },
       mesReferencia: {
         type: "string",
-        description: "Mês de referência no formato AAAA-MM. Opcional, usado no relatório financeiro.",
+        description:
+          "Mês de referência no formato AAAA-MM. Opcional: usado no relatório financeiro e, no de água, para um mês específico.",
+      },
+      periodo: {
+        type: "string",
+        enum: ["30d", "90d", "mes", "mes-anterior"],
+        description:
+          "Só para tipo agua, quando não houver mesReferencia: 30d (últimos 30 dias, padrão), 90d, mes (mês atual até ontem) ou mes-anterior.",
+      },
+      sensor: {
+        type: "string",
+        description: "Só para tipo agua: nome do sensor de água, se houver mais de um. Opcional.",
       },
     },
     required: ["tipo"],
   },
 };
+
+/** Relatório de água: link da rota que gera o PDF na hora (o Excel fica na página Água). */
+async function executarRelatorioAgua(entrada: Record<string, unknown>) {
+  const sensores = await sensoresDeConsumo();
+  if (sensores.length === 0) return { resultado: "Não há sensor de consumo de água cadastrado." };
+  const pedido = String(entrada.sensor ?? "").trim().toLowerCase();
+  const sensor = (pedido && sensores.find((s) => s.nome.toLowerCase().includes(pedido))) || sensores[0];
+  const mes = entrada.mesReferencia ? String(entrada.mesReferencia) : undefined;
+  const periodo = entrada.periodo ? String(entrada.periodo) : "30d";
+  const p = resolverPeriodo(periodo, diaBR(Date.now()), { mes });
+  const qs = new URLSearchParams({ sensor: sensor.id, periodo: p.preset, de: p.de, ate: p.ate, formato: "pdf" });
+  if (mes) qs.set("mes", mes);
+  return {
+    resultado:
+      `Relatório de consumo de água (${sensor.nome}, ${p.rotulo}) pronto. Avise o usuário para baixar pelo botão ` +
+      "abaixo; a versão em Excel e os gráficos ficam na página Água.",
+    arquivoUrl: `/api/agua/relatorio?${qs}`,
+  };
+}
 
 const FERRAMENTA_MEMORIA: Ferramenta = {
   name: "salvar_memoria",
@@ -413,6 +456,7 @@ export async function POST(req: NextRequest) {
     }
     // gerar_relatorio — Gestor não pode gerar o de auditoria (dado sensível, só Admin).
     const tipo = String(entrada.tipo ?? "geral");
+    if (tipo === "agua") return executarRelatorioAgua(entrada);
     if (tipo === "auditoria" && !isAdmin) {
       return { resultado: "Relatório de auditoria é restrito ao síndico/admin." };
     }
@@ -436,8 +480,14 @@ atual: se houver períodos com valor ZERADO nas últimas 24h, aponte-os proativa
 água, pressão zerada significa FALTA DE ÁGUA naquele período. Ao citar um período de queda, informe
 SEMPRE o início e o fim completos, com data e hora (ex.: "de 08/07 às 22:35 até 09/07 às 05:10"),
 mesmo que o período atravesse a meia-noite ou a pergunta seja sobre "hoje".
+A seção "CONSUMO DE ÁGUA" traz o consumo calculado DIA A DIA a partir do sensor de nível do reservatório
+(totais, médias, ranking, padrões e a lista dia a dia). Use esses números para perguntas como "qual dia
+mais gastou água", "quanto consumimos em setembro" ou "o consumo aumentou?". Dias marcados com * ficaram
+fora das médias (dado incompleto ou defeito do sensor) — avise isso se citar um deles. Fale em m³ e cite
+as datas. Repasse os DESTAQUES quando forem relevantes (madrugada alta pode indicar vazamento; sensor
+com falhas de leitura precisa de manutenção), deixando claro quando um valor é estimado.
 Quando o usuário pedir um relatório, PDF ou prestação de contas, use a ferramenta "gerar_relatorio"
-e, depois, confirme em uma frase curta que o PDF foi gerado.${
+(tipo "agua" para consumo de água) e, depois, confirme em uma frase curta que o PDF foi gerado.${
     isAdmin
       ? `
 Você também tem uma MEMÓRIA permanente: quando o usuário informar um fato duradouro (nomes, regras,

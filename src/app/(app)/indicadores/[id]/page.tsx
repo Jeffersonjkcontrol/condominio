@@ -189,14 +189,21 @@ export default async function IndicadorDetalhePage({
                 </p>
               ) : null}
             </div>
-            {admin && (
-              <form action={recalcularConsumo}>
-                <input type="hidden" name="id" value={indicador.id} />
-                <Button type="submit" variant="outline" size="sm">
-                  Recalcular histórico
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={`/agua?sensor=${indicador.id}`}>
+                <Button type="button" size="sm">
+                  Análise e relatório
                 </Button>
-              </form>
-            )}
+              </Link>
+              {admin && (
+                <form action={recalcularConsumo}>
+                  <input type="hidden" name="id" value={indicador.id} />
+                  <Button type="submit" variant="outline" size="sm">
+                    Recalcular histórico
+                  </Button>
+                </form>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

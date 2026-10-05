@@ -17,6 +17,7 @@ import {
   Repeat,
   CalendarDays,
   ListChecks,
+  Droplets,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ const itens: Item[] = [
   { href: "/servicos", label: "Serviços", icon: Wrench },
   { href: "/obras", label: "Obras", icon: HardHat },
   { href: "/manutencao", label: "Manutenção", icon: Hammer },
+  { href: "/agua", label: "Água", icon: Droplets },
   { href: "/relatorios", label: "Relatórios", icon: FileBarChart },
   { href: "/assistente", label: "Assistente IA", icon: Sparkles },
   { href: "/usuarios", label: "Usuários", icon: Users, somenteAdmin: true },

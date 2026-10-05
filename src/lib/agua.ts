@@ -174,6 +174,28 @@ export async function historicoEmDia(indicadorId: string): Promise<boolean> {
   return !!ultimo && ultimo.dia >= somarDias(diaBR(Date.now()), -1);
 }
 
+type LinhaConsumo = Awaited<ReturnType<typeof prisma.consumoDiario.findMany>>[number];
+
+function paraDiaConsumo(l: LinhaConsumo): DiaConsumo {
+  let porHora: number[] = [];
+  try {
+    porHora = JSON.parse(l.porHora);
+  } catch {
+    /* linha corrompida: segue sem o detalhe por hora */
+  }
+  return {
+    dia: l.dia,
+    consumoLitros: l.consumoLitros,
+    consumoEstimadoLitros: l.consumoEstimadoLitros,
+    reabastecidoLitros: l.reabastecidoLitros,
+    porHora,
+    horaPico: l.horaPico,
+    cobertura: l.cobertura,
+    amostras: l.amostras,
+    problema: l.problema,
+  };
+}
+
 /** Consumo diário guardado dos últimos `dias` dias (mais antigo → mais recente). */
 export async function historicoConsumo(indicadorId: string, dias = 30): Promise<DiaConsumo[]> {
   const desde = somarDias(diaBR(Date.now()), -dias);
@@ -181,23 +203,51 @@ export async function historicoConsumo(indicadorId: string, dias = 30): Promise<
     where: { indicadorId, dia: { gte: desde } },
     orderBy: { dia: "asc" },
   });
-  return linhas.map((l) => {
-    let porHora: number[] = [];
-    try {
-      porHora = JSON.parse(l.porHora);
-    } catch {
-      /* linha corrompida: segue sem o detalhe por hora */
-    }
-    return {
-      dia: l.dia,
-      consumoLitros: l.consumoLitros,
-      consumoEstimadoLitros: l.consumoEstimadoLitros,
-      reabastecidoLitros: l.reabastecidoLitros,
-      porHora,
-      horaPico: l.horaPico,
-      cobertura: l.cobertura,
-      amostras: l.amostras,
-      problema: l.problema,
-    };
+  return linhas.map(paraDiaConsumo);
+}
+
+/** Consumo diário guardado de `de` a `ate` (inclusive, "AAAA-MM-DD"), mais antigo → mais recente. */
+export async function consumoPeriodo(indicadorId: string, de: string, ate: string): Promise<DiaConsumo[]> {
+  const linhas = await prisma.consumoDiario.findMany({
+    where: { indicadorId, dia: { gte: de, lte: ate } },
+    orderBy: { dia: "asc" },
   });
+  return linhas.map(paraDiaConsumo);
+}
+
+/** Sensores ativos que têm consumo calculado (reservatório / hidrômetro), na ordem do Dashboard. */
+export async function sensoresDeConsumo() {
+  const todos = await prisma.indicadorExterno.findMany({
+    where: { ativo: true },
+    orderBy: { ordem: "asc" },
+    select: { id: true, nome: true, tipo: true, capacidadeLitros: true, leiturasDesde: true, unidade: true },
+  });
+  return todos.filter((i) => calculaConsumo(i.tipo));
+}
+
+/**
+ * Eventos (não cancelados) por dia, para explicar picos de consumo no relatório.
+ * O dia é o do fuso DO SERVIDOR — o mesmo em que a agenda grava e exibe os eventos
+ * (ver nota de fuso no projeto); assim bate com o que o usuário vê em /eventos.
+ */
+export async function eventosPorDia(de: string, ate: string): Promise<Map<string, string[]>> {
+  const ini = new Date(`${somarDias(de, -1)}T00:00:00Z`); // folga de 1 dia para os dois fusos
+  const fim = new Date(`${somarDias(ate, 2)}T00:00:00Z`);
+  const eventos = await prisma.evento.findMany({
+    where: { status: { not: "CANCELADO" }, dataInicio: { lt: fim }, dataFim: { gte: ini } },
+    orderBy: { dataInicio: "asc" },
+    select: { titulo: true, dataInicio: true, dataFim: true },
+  });
+  const diaLocal = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const mapa = new Map<string, string[]>();
+  for (const e of eventos) {
+    const primeiro = diaLocal(e.dataInicio);
+    const ultimo = diaLocal(e.dataFim) >= primeiro ? diaLocal(e.dataFim) : primeiro;
+    for (let d = primeiro, n = 0; d <= ultimo && n < 31; d = somarDias(d, 1), n++) {
+      if (d < de || d > ate) continue;
+      mapa.set(d, [...(mapa.get(d) ?? []), e.titulo]);
+    }
+  }
+  return mapa;
 }
