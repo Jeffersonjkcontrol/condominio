@@ -258,6 +258,36 @@ model IndicadorExterno {
   ordem         Int      @default(0)
   ativo         Boolean  @default(true)
   criadoEm      DateTime @default(now())
+
+  // GENERICO | PRESSAO | NIVEL_RESERVATORIO | CONSUMO_ACUMULADO (ver lib/agua-calc.ts)
+  tipo             String  @default("GENERICO")
+  // Reservatório: capacidade total e reserva técnica de incêndio (o "vazio" útil), em litros
+  capacidadeLitros Float?
+  reservaLitros    Float?
+
+  consumos ConsumoDiario[]
+}
+
+/// Consumo de água de um dia, calculado a partir das leituras do sensor (lib/agua.ts).
+/// Guardado no app para relatórios rápidos e para o histórico sobreviver à retenção da plataforma.
+model ConsumoDiario {
+  id                    String   @id @default(cuid())
+  indicadorId           String
+  indicador             IndicadorExterno @relation(fields: [indicadorId], references: [id], onDelete: Cascade)
+  dia                   String   // "AAAA-MM-DD" no fuso de Brasília (texto evita armadilhas de fuso)
+  consumoLitros         Float    // medido + estimado durante enchimentos
+  consumoEstimadoLitros Float    // parte estimada (mascarada pelo enchimento da bomba)
+  reabastecidoLitros    Float
+  porHora               String   // JSON: number[24], consumo por hora de Brasília
+  horaPico              Int?
+  nivelMinimo           Float?
+  nivelMaximo           Float?
+  amostras              Int
+  cobertura             Float    // 0–1: fração das 24h com leitura (qualidade do dado)
+  calculadoEm           DateTime @default(now())
+
+  @@unique([indicadorId, dia])
+  @@index([dia])
 }
 
 /// Fatos/instruções permanentes que o Assistente IA deve lembrar em todas as conversas.

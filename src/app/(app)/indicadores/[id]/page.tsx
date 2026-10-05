@@ -1,12 +1,26 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Gauge, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Gauge, AlertTriangle, Droplets } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { ehAdmin } from "@/lib/permissoes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { buscarIndicadores, buscarHistorico } from "@/lib/nexus";
+import { historicoConsumo, consumoDeHoje } from "@/lib/agua";
+import { calculaConsumo, formatarVolume } from "@/lib/agua-calc";
+import { recalcularConsumo } from "@/app/actions/indicadores";
 import { SensorChart } from "@/components/sensor-chart";
+import { ConsumoChart } from "@/components/consumo-chart";
 import { formatarDataHoraBR, cn } from "@/lib/utils";
 import type { SP } from "@/lib/listagem";
+
+const DIAS_GRAFICO = 30;
+const SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+function rotuloDia(dia: string): string {
+  const [, m, d] = dia.split("-");
+  return `${SEMANA[new Date(`${dia}T12:00:00Z`).getUTCDay()]}, ${d}/${m}`;
+}
 
 const PERIODOS = [
   { horas: 24, rotulo: "24 horas" },
@@ -35,11 +49,28 @@ export default async function IndicadorDetalhePage({
   const indicador = await prisma.indicadorExterno.findUnique({ where: { id } });
   if (!indicador) notFound();
 
-  const [leituras, historico] = await Promise.all([
+  const temConsumo = calculaConsumo(indicador.tipo);
+  const [leituras, historico, dias, hoje, session] = await Promise.all([
     buscarIndicadores(),
     buscarHistorico(indicador.deviceLabel, indicador.variableLabel, horas),
+    temConsumo ? historicoConsumo(id, DIAS_GRAFICO) : Promise.resolve([]),
+    temConsumo ? consumoDeHoje(indicador) : Promise.resolve(null),
+    auth(),
   ]);
   const atual = leituras.find((l) => l.id === id);
+  const admin = ehAdmin(session?.user.papel);
+
+  // Dias sem nenhuma leitura (ex.: antes do sensor existir) ficam fora do gráfico;
+  // só dias com pelo menos metade das horas com leitura entram nas médias.
+  const diasComLeitura = dias.filter((d) => d.amostras > 0);
+  const diasValidos = dias.filter((d) => d.cobertura >= 0.5);
+  const mediaDia = diasValidos.length
+    ? diasValidos.reduce((s, d) => s + d.consumoLitros, 0) / diasValidos.length
+    : null;
+  const maiorDia = diasValidos.reduce<(typeof diasValidos)[number] | null>(
+    (a, d) => (!a || d.consumoLitros > a.consumoLitros ? d : a),
+    null
+  );
 
   const valores = historico.pontos.map((p) => p.v);
   const temDados = valores.length > 0;
@@ -135,6 +166,102 @@ export default async function IndicadorDetalhePage({
           <SensorChart pontos={historico.pontos} unidade={indicador.unidade} longo={horas > 48} />
         </CardContent>
       </Card>
+
+      {temConsumo && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                <Droplets className="h-5 w-5 text-primary" /> Consumo de água
+              </h2>
+              {indicador.capacidadeLitros ? (
+                <p className="text-xs text-muted">
+                  Capacidade {formatarVolume(indicador.capacidadeLitros)}
+                  {indicador.reservaLitros
+                    ? ` · reserva de incêndio ${formatarVolume(indicador.reservaLitros)}`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+            {admin && (
+              <form action={recalcularConsumo}>
+                <input type="hidden" name="id" value={indicador.id} />
+                <Button type="submit" variant="outline" size="sm">
+                  Recalcular histórico
+                </Button>
+              </form>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Card>
+              <CardContent>
+                <p className="text-sm text-muted">Hoje até agora</p>
+                <p className="text-xl font-bold text-foreground">
+                  {hoje ? formatarVolume(hoje.consumoLitros) : "—"}
+                </p>
+                <p className="text-xs text-muted">
+                  {hoje == null
+                    ? "plataforma indisponível"
+                    : hoje.horaPico != null
+                      ? `pico às ${hoje.horaPico}h`
+                      : "sem consumo registrado"}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <p className="text-sm text-muted">Média diária</p>
+                <p className="text-xl font-bold text-foreground">
+                  {mediaDia != null ? formatarVolume(mediaDia) : "—"}
+                </p>
+                <p className="text-xs text-muted">{diasValidos.length} dia(s) com dado completo</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <p className="text-sm text-muted">Maior consumo</p>
+                <p className="text-xl font-bold text-foreground">
+                  {maiorDia ? formatarVolume(maiorDia.consumoLitros) : "—"}
+                </p>
+                <p className="text-xs text-muted">{maiorDia ? rotuloDia(maiorDia.dia) : "—"}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <p className="text-sm text-muted">Histórico</p>
+                <p className="text-xl font-bold text-foreground">{diasComLeitura.length} dia(s)</p>
+                <p className="text-xs text-muted">
+                  {dias.length < DIAS_GRAFICO
+                    ? "montando em segundo plano…"
+                    : `com leitura nos últimos ${DIAS_GRAFICO}`}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Consumo por dia — últimos {DIAS_GRAFICO} dias</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <ConsumoChart
+                dias={diasComLeitura.map((d) => ({
+                  dia: d.dia,
+                  consumoLitros: d.consumoLitros,
+                  consumoEstimadoLitros: d.consumoEstimadoLitros,
+                  cobertura: d.cobertura,
+                }))}
+              />
+              <p className="text-xs text-muted">
+                Quando a bomba enche a caixa, o nível sobe e o consumo daquele período fica escondido no
+                sinal — ele é estimado pela vazão de saída antes e depois do enchimento. Barras claras =
+                dia com dado incompleto (sensor sem leitura em mais da metade do dia).
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

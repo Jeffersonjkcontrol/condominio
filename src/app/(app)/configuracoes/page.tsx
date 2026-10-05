@@ -14,6 +14,7 @@ import { salvarConfiguracao, removerChave, salvarLogo, removerLogo } from "@/app
 import { criarMemoria, atualizarMemoria, excluirMemoria } from "@/app/actions/memorias";
 import { criarIndicador, atualizarIndicador, excluirIndicador } from "@/app/actions/indicadores";
 import { IndicadorNovoForm } from "@/components/forms/indicador-novo-form";
+import { CamposTipoIndicador } from "@/components/forms/campos-tipo-indicador";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -348,6 +349,8 @@ export default async function ConfiguracoesPage() {
           <p className="text-sm text-muted">
             Cada item vira um card no Dashboard com o valor atual do sensor. Informe o{" "}
             <strong>deviceLabel</strong> e o <strong>variableLabel</strong> exatamente como na plataforma.
+            Para <strong>reservatório</strong>, informe a capacidade (se a variável vier em %, ela é
+            convertida em litros) — o consumo diário passa a ser calculado automaticamente.
           </p>
 
           {catalogoDevices.length > 0 ? (
@@ -365,10 +368,11 @@ export default async function ConfiguracoesPage() {
                 <Input name="variableLabel" required placeholder="variableLabel" />
                 <div className="flex gap-2">
                   <Input name="unidade" placeholder="un." className="w-16" />
-                  <Button type="submit">
+                  <Button type="submit" aria-label="Adicionar sensor">
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
+                <CamposTipoIndicador />
               </form>
             </>
           )}
@@ -390,6 +394,11 @@ export default async function ConfiguracoesPage() {
                         Salvar
                       </Button>
                     </div>
+                    <CamposTipoIndicador
+                      tipo={ind.tipo}
+                      capacidadeLitros={ind.capacidadeLitros}
+                      reservaLitros={ind.reservaLitros}
+                    />
                     <label className="flex items-center gap-2 text-xs text-muted sm:col-span-6">
                       <input type="checkbox" name="ativo" defaultChecked={ind.ativo} /> Ativo (aparece no
                       Dashboard)

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { CamposTipoIndicador } from "@/components/forms/campos-tipo-indicador";
 
 type Device = { label: string; name: string; variaveis: string[] };
 
@@ -46,10 +47,12 @@ export function IndicadorNovoForm({
 
       <div className="flex gap-2">
         <Input name="unidade" placeholder="un." className="w-16" />
-        <Button type="submit">
+        <Button type="submit" aria-label="Adicionar sensor">
           <Plus className="h-4 w-4" />
         </Button>
       </div>
+
+      <CamposTipoIndicador />
     </form>
   );
 }

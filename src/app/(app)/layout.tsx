@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { auth } from "@/auth";
 import { Sidebar } from "@/components/sidebar";
 import { BrandLogo } from "@/components/brand-logo";
@@ -12,6 +13,7 @@ import { statusCalculadoObra } from "@/lib/obras";
 import { statusCalculadoOS } from "@/lib/manutencao";
 import { gerarRecorrenciasPendentes } from "@/lib/recorrencias";
 import { gerarNotificacoes } from "@/lib/notificacoes";
+import { processarConsumo } from "@/lib/agua";
 
 export default async function AppLayout({
   children,
@@ -30,6 +32,8 @@ export default async function AppLayout({
   await gerarRecorrenciasPendentes();
   // Gera notificações dos alertas atuais para os destinatários (throttled).
   await gerarNotificacoes();
+  // Consumo de água diário: roda DEPOIS de entregar a página (busca na plataforma pode demorar).
+  after(() => processarConsumo());
 
   // Notificações do usuário logado (para o sininho)
   const minhasNotificacoes = await prisma.notificacao.findMany({

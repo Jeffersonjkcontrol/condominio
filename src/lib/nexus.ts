@@ -243,6 +243,72 @@ export async function analisarHistorico24h(
   return { min, max, media, episodiosZero: episodios, minutosZero };
 }
 
+export type LeituraBruta = { t: number; v: number }; // t = epoch ms
+
+/**
+ * Leituras brutas de uma variável numa janela FIXA [inicioMs, fimMs), paginadas
+ * (página 1 = mais recentes). Nunca lança. Distingue falha de "sem leituras":
+ * - `ok: false` → a plataforma falhou (rede, chave, HTTP ≠ 200);
+ * - `completo: false` → havia mais páginas que `maxPaginas` (série truncada).
+ * Quem GRAVA resultado (ex.: consumo diário) só deve gravar com ok && completo.
+ */
+export async function buscarLeituras(
+  deviceLabel: string,
+  variableLabel: string,
+  inicioMs: number,
+  fimMs: number,
+  opcoes: { maxPaginas?: number; cacheSegundos?: number } = {}
+): Promise<{ leituras: LeituraBruta[]; total: number; ok: boolean; completo: boolean }> {
+  const config = await getConfiguracao();
+  if (!config.nexusApiKey) return { leituras: [], total: 0, ok: false, completo: false };
+
+  const base = (config.nexusApiUrl || "https://jkcontrol.online").replace(/\/+$/, "");
+  const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 19);
+  const maxPaginas = opcoes.maxPaginas ?? 6;
+
+  const leituras: LeituraBruta[] = [];
+  let total = 0;
+  let completo = false;
+  try {
+    for (let page = 1; page <= maxPaginas; page++) {
+      const url =
+        `${base}/api/devices/${encodeURIComponent(deviceLabel)}/variables/` +
+        `${encodeURIComponent(variableLabel)}/data?page=${page}&perPage=1000` +
+        `&startDate=${fmt(inicioMs)}&endDate=${fmt(fimMs)}`;
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${config.nexusApiKey}` },
+        ...(opcoes.cacheSegundos
+          ? { next: { revalidate: opcoes.cacheSegundos } }
+          : { cache: "no-store" as const }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!resp.ok) return { leituras, total, ok: false, completo: false };
+      const j = (await resp.json()) as {
+        data?: { timestamp?: string; value?: unknown }[];
+        totalItems?: number;
+        totalPages?: number;
+      };
+      total = j.totalItems ?? total;
+      for (const it of j.data ?? []) {
+        const t = it.timestamp ? Date.parse(it.timestamp) : NaN;
+        const v = typeof it.value === "number" ? it.value : Number(it.value);
+        // Filtro defensivo da janela (a API recebe as datas sem fuso explícito)
+        if (!Number.isNaN(t) && Number.isFinite(v) && t >= inicioMs && t < fimMs) {
+          leituras.push({ t, v });
+        }
+      }
+      if (!j.totalPages || page >= j.totalPages) {
+        completo = true;
+        break;
+      }
+    }
+  } catch {
+    return { leituras, total, ok: false, completo: false };
+  }
+  leituras.sort((a, b) => a.t - b.t);
+  return { leituras, total, ok: true, completo };
+}
+
 const MAX_PAGINAS_HIST = 6; // ~6.000 leituras no máximo por consulta
 const ALVO_PONTOS = 240; // downsample: gráfico leve mesmo em 7 dias
 
@@ -253,47 +319,16 @@ export async function buscarHistorico(
   variableLabel: string,
   horas: number
 ): Promise<{ pontos: PontoHistorico[]; total: number }> {
-  const config = await getConfiguracao();
-  if (!config.nexusApiKey) return { pontos: [], total: 0 };
-
-  const base = (config.nexusApiUrl || "https://jkcontrol.online").replace(/\/+$/, "");
   // Fim arredondado para 5 min: a URL fica estável e o cache do fetch (60s) é aproveitado.
   const fimMs = Math.floor(Date.now() / 300_000) * 300_000;
   const inicioMs = fimMs - horas * 3_600_000;
-  const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 19);
-
-  const brutos: { t: number; v: number }[] = [];
-  let total = 0;
-  try {
-    for (let page = 1; page <= MAX_PAGINAS_HIST; page++) {
-      const url =
-        `${base}/api/devices/${encodeURIComponent(deviceLabel)}/variables/` +
-        `${encodeURIComponent(variableLabel)}/data?page=${page}&perPage=1000` +
-        `&startDate=${fmt(inicioMs)}&endDate=${fmt(fimMs)}`;
-      const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${config.nexusApiKey}` },
-        next: { revalidate: 60 },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!resp.ok) break;
-      const j = (await resp.json()) as {
-        data?: { timestamp?: string; value?: unknown }[];
-        totalItems?: number;
-        totalPages?: number;
-      };
-      total = j.totalItems ?? total;
-      for (const it of j.data ?? []) {
-        const t = it.timestamp ? Date.parse(it.timestamp) : NaN;
-        const v = typeof it.value === "number" ? it.value : Number(it.value);
-        if (!Number.isNaN(t) && Number.isFinite(v)) brutos.push({ t, v });
-      }
-      if (!j.totalPages || page >= j.totalPages) break;
-    }
-  } catch {
-    /* plataforma indisponível → devolve o que tiver (possivelmente nada) */
-  }
-
-  brutos.sort((a, b) => a.t - b.t);
+  const { leituras: brutos, total } = await buscarLeituras(
+    deviceLabel,
+    variableLabel,
+    inicioMs,
+    fimMs,
+    { maxPaginas: MAX_PAGINAS_HIST, cacheSegundos: 60 }
+  );
   if (brutos.length <= ALVO_PONTOS) {
     return { pontos: brutos.map((p) => ({ t: new Date(p.t).toISOString(), v: p.v })), total };
   }
