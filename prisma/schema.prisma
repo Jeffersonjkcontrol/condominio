@@ -265,7 +265,22 @@ model IndicadorExterno {
   capacidadeLitros Float?
   reservaLitros    Float?
 
+  // Chave de API usada para ler este sensor. Vazio = chave principal (Configuracao.nexusApiKey).
+  conexaoId String?
+  conexao   ConexaoNexus? @relation(fields: [conexaoId], references: [id], onDelete: Restrict)
+
   consumos ConsumoDiario[]
+}
+
+/// Chave de API adicional da jkcontrol.online — para sensores de OUTRA organização/conta
+/// (cada chave só enxerga os devices da própria organização). Nunca vai para o navegador.
+model ConexaoNexus {
+  id       String   @id @default(cuid())
+  nome     String
+  apiKey   String
+  criadoEm DateTime @default(now())
+
+  indicadores IndicadorExterno[]
 }
 
 /// Consumo de água de um dia, calculado a partir das leituras do sensor (lib/agua.ts).

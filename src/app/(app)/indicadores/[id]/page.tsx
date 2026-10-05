@@ -52,7 +52,7 @@ export default async function IndicadorDetalhePage({
   const temConsumo = calculaConsumo(indicador.tipo);
   const [leituras, historico, dias, hoje, session] = await Promise.all([
     buscarIndicadores(),
-    buscarHistorico(indicador.deviceLabel, indicador.variableLabel, horas),
+    buscarHistorico(indicador, horas),
     temConsumo ? historicoConsumo(id, DIAS_GRAFICO) : Promise.resolve([]),
     temConsumo ? consumoDeHoje(indicador) : Promise.resolve(null),
     auth(),

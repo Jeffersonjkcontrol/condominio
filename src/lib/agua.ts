@@ -1,6 +1,5 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { getConfiguracao } from "@/lib/config";
 import { buscarLeituras } from "@/lib/nexus";
 import {
   agregarDia,
@@ -36,6 +35,7 @@ type IndicadorConsumo = {
   unidade: string | null;
   tipo: string;
   capacidadeLitros: number | null;
+  conexaoId: string | null;
 };
 
 /** Leituras de um dia de Brasília, já em litros. `ok: false` = não dá para confiar (não gravar). */
@@ -45,7 +45,7 @@ async function leiturasDoDia(
   cacheSegundos?: number
 ): Promise<{ ok: boolean; leituras: Leitura[] }> {
   const ini = inicioDiaBR(dia);
-  const r = await buscarLeituras(ind.deviceLabel, ind.variableLabel, ini, ini + DIA_MS, {
+  const r = await buscarLeituras(ind, ini, ini + DIA_MS, {
     maxPaginas: 30, // 30 mil leituras: cobre até 1 leitura a cada 3 s
     cacheSegundos,
   });
@@ -75,7 +75,8 @@ function dadosDoDia(r: ResultadoDia) {
 
 /**
  * Calcula e grava o consumo dos dias completos (até ontem) que ainda faltam.
- * Nunca lança. Se a plataforma falhar, para e tenta na próxima rodada — sem gravar zero falso.
+ * Nunca lança. Se a plataforma falhar para um sensor (fora do ar, chave revogada), pula esse
+ * sensor e tenta de novo na próxima rodada — sem gravar zero falso e sem travar os outros.
  */
 export async function processarConsumo(forcar = false): Promise<{ processados: number }> {
   const agora = Date.now();
@@ -86,9 +87,6 @@ export async function processarConsumo(forcar = false): Promise<{ processados: n
   let vistos = 0; // todos os dias, inclusive vazios
   let atrasado = false;
   try {
-    const config = await getConfiguracao();
-    if (!config.nexusApiKey) return { processados };
-
     const indicadores = (await prisma.indicadorExterno.findMany({ where: { ativo: true } })).filter(
       (i) => calculaConsumo(i.tipo)
     );
@@ -112,7 +110,7 @@ export async function processarConsumo(forcar = false): Promise<{ processados: n
           break;
         }
         const { ok, leituras } = await leiturasDoDia(ind, dia);
-        if (!ok) return { processados }; // plataforma fora/truncada: tenta depois
+        if (!ok) break; // plataforma fora/chave inválida/série truncada: tenta depois
         const r = agregarDia(leituras, ind.tipo, { capacidadeLitros: ind.capacidadeLitros });
         const dados = dadosDoDia(r);
         await prisma.consumoDiario.upsert({

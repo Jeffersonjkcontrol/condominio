@@ -3,7 +3,10 @@ import { getConfiguracao } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
 
 // Integração de leitura com a plataforma jkcontrol.online (NEXUS.CORE).
-// Só roda no servidor — a API Key nunca vai para o cliente.
+// Só roda no servidor — as API Keys nunca vão para o cliente.
+// Cada chave só enxerga os devices da própria organização: além da chave principal
+// (Configuracao.nexusApiKey) pode haver chaves adicionais (ConexaoNexus), e cada sensor
+// guarda qual usa (conexaoId vazio = principal).
 
 export type LeituraIndicador = {
   id: string;
@@ -14,7 +17,20 @@ export type LeituraIndicador = {
   erro: string | null;
 };
 
-type Cfg = { nexusApiUrl: string; nexusApiKey: string };
+/** O que identifica uma série na plataforma. Um IndicadorExterno do Prisma serve direto. */
+export type FonteSensor = { deviceLabel: string; variableLabel: string; conexaoId?: string | null };
+
+type Credencial = { base: string; apiKey: string };
+
+const urlBase = (url: string | null | undefined) => (url || "https://jkcontrol.online").replace(/\/+$/, "");
+
+/** URL + chave para ler um sensor. null = chave não configurada (ou chave adicional removida). */
+async function credencialDe(conexaoId: string | null | undefined): Promise<Credencial | null> {
+  const config = await getConfiguracao();
+  if (!conexaoId) return config.nexusApiKey ? { base: urlBase(config.nexusApiUrl), apiKey: config.nexusApiKey } : null;
+  const conexao = await prisma.conexaoNexus.findUnique({ where: { id: conexaoId }, select: { apiKey: true } });
+  return conexao ? { base: urlBase(config.nexusApiUrl), apiKey: conexao.apiKey } : null;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function comoArray(x: unknown): any[] {
@@ -37,12 +53,13 @@ const valOf = (o: any, keys: string[]): number | string | null => {
   return null;
 };
 
-/** Snapshot atual de todos os devices. Lança em erro de auth/rede. */
-async function buscarSnapshot(cfg: Cfg): Promise<unknown> {
-  const base = (cfg.nexusApiUrl || "https://jkcontrol.online").replace(/\/+$/, "");
-  const resp = await fetch(`${base}/api/devices/data`, {
-    headers: { Authorization: `Bearer ${cfg.nexusApiKey}` },
-    next: { revalidate: 20 }, // compartilha 1 chamada por ~20s (não martela a API externa)
+/** Snapshot atual de todos os devices da organização da chave. Lança em erro de auth/rede. */
+async function buscarSnapshot(cred: Credencial): Promise<unknown> {
+  const resp = await fetch(`${cred.base}/api/devices/data`, {
+    headers: { Authorization: `Bearer ${cred.apiKey}` },
+    // Compartilha 1 chamada por ~20s (não martela a API externa). O cache do Next inclui os
+    // headers na chave — cada API Key tem a sua entrada, sem misturar organizações.
+    next: { revalidate: 20 },
     signal: AbortSignal.timeout(8_000), // plataforma travada não pode travar o app
   });
   if (resp.status === 401 || resp.status === 403) throw new Error("Chave inválida ou sem permissão");
@@ -103,10 +120,10 @@ function extrair(snapshot: unknown, deviceLabel: string, variableLabel: string) 
 
 /** Lê os indicadores ativos e busca o valor atual de cada um. Nunca lança (erros viram o campo `erro`). */
 export async function buscarIndicadores(): Promise<LeituraIndicador[]> {
-  const [config, indicadores] = await Promise.all([
-    getConfiguracao(),
-    prisma.indicadorExterno.findMany({ where: { ativo: true }, orderBy: { ordem: "asc" } }),
-  ]);
+  const indicadores = await prisma.indicadorExterno.findMany({
+    where: { ativo: true },
+    orderBy: { ordem: "asc" },
+  });
   if (indicadores.length === 0) return [];
 
   const base = (nome: string, unidade: string | null, erro: string | null): LeituraIndicador => ({
@@ -118,20 +135,28 @@ export async function buscarIndicadores(): Promise<LeituraIndicador[]> {
     erro,
   });
 
-  if (!config.nexusApiKey) {
-    return indicadores.map((i) => ({ ...base(i.nome, i.unidade, "API não configurada"), id: i.id }));
-  }
-
-  let snapshot: unknown = null;
-  let erroGlobal: string | null = null;
-  try {
-    snapshot = await buscarSnapshot({ nexusApiUrl: config.nexusApiUrl, nexusApiKey: config.nexusApiKey });
-  } catch (e) {
-    erroGlobal = e instanceof Error ? e.message : "Falha ao consultar a plataforma";
-  }
+  // Um snapshot por chave (principal + adicionais em uso), em paralelo. A falha de uma
+  // chave só afeta os sensores dela.
+  const conexoes = [...new Set(indicadores.map((i) => i.conexaoId ?? ""))];
+  const snapshots = new Map<string, { snapshot: unknown; erro: string | null }>();
+  await Promise.all(
+    conexoes.map(async (c) => {
+      const cred = await credencialDe(c || null);
+      if (!cred) return snapshots.set(c, { snapshot: null, erro: "API não configurada" });
+      try {
+        snapshots.set(c, { snapshot: await buscarSnapshot(cred), erro: null });
+      } catch (e) {
+        snapshots.set(c, {
+          snapshot: null,
+          erro: e instanceof Error ? e.message : "Falha ao consultar a plataforma",
+        });
+      }
+    })
+  );
 
   return indicadores.map((i) => {
-    if (erroGlobal) return { ...base(i.nome, i.unidade, erroGlobal), id: i.id };
+    const { snapshot, erro } = snapshots.get(i.conexaoId ?? "")!;
+    if (erro) return { ...base(i.nome, i.unidade, erro), id: i.id };
     const r = extrair(snapshot, i.deviceLabel, i.variableLabel);
     if (!r || r.valor == null) return { ...base(i.nome, i.unidade, "Sem leitura"), id: i.id };
     return {
@@ -147,54 +172,63 @@ export async function buscarIndicadores(): Promise<LeituraIndicador[]> {
 
 export type DeviceCatalogo = { label: string; name: string; variaveis: string[] };
 
-/** Lista os devices e suas variáveis disponíveis na plataforma (para os menus do admin). */
-export async function listarDevices(): Promise<DeviceCatalogo[]> {
-  const config = await getConfiguracao();
-  if (!config.nexusApiKey) return [];
-  try {
-    const snapshot = await buscarSnapshot({
-      nexusApiUrl: config.nexusApiUrl,
-      nexusApiKey: config.nexusApiKey,
-    });
-    return comoArray(snapshot)
-      .map((dev) => {
-        const label = strOf(dev, ["label", "deviceLabel", "name", "_id"]) ?? "";
-        const name = strOf(dev, ["name"]) ?? label;
-        const varsRaw = dev.variables ?? dev.data ?? dev.vars;
-        let variaveis: string[] = [];
-        if (varsRaw && typeof varsRaw === "object" && !Array.isArray(varsRaw)) {
-          variaveis = Object.keys(varsRaw);
-        } else {
-          variaveis = comoArray(varsRaw)
-            .map((v) => strOf(v, ["label", "variableLabel", "name"]) ?? "")
-            .filter(Boolean);
-        }
-        return { label, name, variaveis };
-      })
-      .filter((d) => d.label);
-  } catch {
-    return [];
-  }
+/** Uma chave (principal ou adicional) com o resultado do teste e os devices que ela enxerga.
+ *  Não contém a chave em si — pode ir para componentes client. */
+export type ConexaoCatalogo = {
+  id: string | null; // null = chave principal
+  nome: string;
+  ok: boolean;
+  mensagem: string;
+  devices: DeviceCatalogo[];
+};
+
+function devicesDoSnapshot(snapshot: unknown): DeviceCatalogo[] {
+  return comoArray(snapshot)
+    .map((dev) => {
+      const label = strOf(dev, ["label", "deviceLabel", "name", "_id"]) ?? "";
+      const name = strOf(dev, ["name"]) ?? label;
+      const varsRaw = dev.variables ?? dev.data ?? dev.vars;
+      let variaveis: string[] = [];
+      if (varsRaw && typeof varsRaw === "object" && !Array.isArray(varsRaw)) {
+        variaveis = Object.keys(varsRaw);
+      } else {
+        variaveis = comoArray(varsRaw)
+          .map((v) => strOf(v, ["label", "variableLabel", "name"]) ?? "")
+          .filter(Boolean);
+      }
+      return { label, name, variaveis };
+    })
+    .filter((d) => d.label);
 }
 
-/** Testa a conectividade/credencial (para a tela de Configurações). */
-export async function testarConexaoNexus(): Promise<{ ok: boolean; mensagem: string }> {
-  const config = await getConfiguracao();
-  if (!config.nexusApiKey) return { ok: false, mensagem: "Sem API Key" };
-  try {
-    // Usa /api/devices/data (aceita API Key). O /api/users/profile só aceita token de login.
-    const base = config.nexusApiUrl.replace(/\/+$/, "");
-    const resp = await fetch(`${base}/api/devices/data`, {
-      headers: { Authorization: `Bearer ${config.nexusApiKey}` },
-      next: { revalidate: 30 },
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (resp.ok) return { ok: true, mensagem: "Conectado" };
-    if (resp.status === 401 || resp.status === 403) return { ok: false, mensagem: "Chave inválida" };
-    return { ok: false, mensagem: `Erro ${resp.status}` };
-  } catch {
-    return { ok: false, mensagem: "Sem conexão" };
-  }
+/**
+ * Testa cada chave configurada e lista os devices/variáveis que ela enxerga
+ * (status e menus da tela de Configurações). Usa /api/devices/data, que aceita API Key —
+ * o /api/users/profile só aceita token de login. Nunca lança.
+ */
+export async function catalogoNexus(): Promise<ConexaoCatalogo[]> {
+  const [config, adicionais] = await Promise.all([
+    getConfiguracao(),
+    prisma.conexaoNexus.findMany({ orderBy: { criadoEm: "asc" } }),
+  ]);
+  const base = urlBase(config.nexusApiUrl);
+  const chaves = [
+    ...(config.nexusApiKey ? [{ id: null, nome: "Principal", apiKey: config.nexusApiKey }] : []),
+    ...adicionais.map((c) => ({ id: c.id as string | null, nome: c.nome, apiKey: c.apiKey })),
+  ];
+  return Promise.all(
+    chaves.map(async ({ id, nome, apiKey }): Promise<ConexaoCatalogo> => {
+      try {
+        const devices = devicesDoSnapshot(await buscarSnapshot({ base, apiKey }));
+        return { id, nome, ok: true, mensagem: `Conectado · ${devices.length} device(s)`, devices };
+      } catch (e) {
+        // buscarSnapshot lança "Chave inválida…"/"Falha na API (status)"; o resto é rede/timeout
+        const m = e instanceof Error ? e.message : "";
+        const mensagem = m.startsWith("Chave") ? "Chave inválida" : m.startsWith("Falha") ? m : "Sem conexão";
+        return { id, nome, ok: false, mensagem, devices: [] };
+      }
+    })
+  );
 }
 
 export type PontoHistorico = { t: string; v: number };
@@ -210,11 +244,8 @@ export type AnaliseSensor = {
 
 /** Resume as últimas 24h de um sensor: mín/máx/média + períodos com valor zerado.
  *  Usado para dar contexto histórico à IA. Nunca lança (sem dados → null). */
-export async function analisarHistorico24h(
-  deviceLabel: string,
-  variableLabel: string
-): Promise<AnaliseSensor | null> {
-  const { pontos } = await buscarHistorico(deviceLabel, variableLabel, 24);
+export async function analisarHistorico24h(fonte: FonteSensor): Promise<AnaliseSensor | null> {
+  const { pontos } = await buscarHistorico(fonte, 24);
   if (pontos.length === 0) return null;
 
   const vs = pontos.map((p) => p.v);
@@ -253,16 +284,15 @@ export type LeituraBruta = { t: number; v: number }; // t = epoch ms
  * Quem GRAVA resultado (ex.: consumo diário) só deve gravar com ok && completo.
  */
 export async function buscarLeituras(
-  deviceLabel: string,
-  variableLabel: string,
+  fonte: FonteSensor,
   inicioMs: number,
   fimMs: number,
   opcoes: { maxPaginas?: number; cacheSegundos?: number } = {}
 ): Promise<{ leituras: LeituraBruta[]; total: number; ok: boolean; completo: boolean }> {
-  const config = await getConfiguracao();
-  if (!config.nexusApiKey) return { leituras: [], total: 0, ok: false, completo: false };
+  const cred = await credencialDe(fonte.conexaoId);
+  if (!cred) return { leituras: [], total: 0, ok: false, completo: false };
 
-  const base = (config.nexusApiUrl || "https://jkcontrol.online").replace(/\/+$/, "");
+  const { deviceLabel, variableLabel } = fonte;
   const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 19);
   const maxPaginas = opcoes.maxPaginas ?? 6;
 
@@ -272,11 +302,11 @@ export async function buscarLeituras(
   try {
     for (let page = 1; page <= maxPaginas; page++) {
       const url =
-        `${base}/api/devices/${encodeURIComponent(deviceLabel)}/variables/` +
+        `${cred.base}/api/devices/${encodeURIComponent(deviceLabel)}/variables/` +
         `${encodeURIComponent(variableLabel)}/data?page=${page}&perPage=1000` +
         `&startDate=${fmt(inicioMs)}&endDate=${fmt(fimMs)}`;
       const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${config.nexusApiKey}` },
+        headers: { Authorization: `Bearer ${cred.apiKey}` },
         ...(opcoes.cacheSegundos
           ? { next: { revalidate: opcoes.cacheSegundos } }
           : { cache: "no-store" as const }),
@@ -315,20 +345,16 @@ const ALVO_PONTOS = 240; // downsample: gráfico leve mesmo em 7 dias
 /** Histórico de uma variável na janela das últimas `horas`. Nunca lança (erro → vazio).
  *  Busca paginada (página 1 = leituras mais recentes) + média por bucket de tempo. */
 export async function buscarHistorico(
-  deviceLabel: string,
-  variableLabel: string,
+  fonte: FonteSensor,
   horas: number
 ): Promise<{ pontos: PontoHistorico[]; total: number }> {
   // Fim arredondado para 5 min: a URL fica estável e o cache do fetch (60s) é aproveitado.
   const fimMs = Math.floor(Date.now() / 300_000) * 300_000;
   const inicioMs = fimMs - horas * 3_600_000;
-  const { leituras: brutos, total } = await buscarLeituras(
-    deviceLabel,
-    variableLabel,
-    inicioMs,
-    fimMs,
-    { maxPaginas: MAX_PAGINAS_HIST, cacheSegundos: 60 }
-  );
+  const { leituras: brutos, total } = await buscarLeituras(fonte, inicioMs, fimMs, {
+    maxPaginas: MAX_PAGINAS_HIST,
+    cacheSegundos: 60,
+  });
   if (brutos.length <= ALVO_PONTOS) {
     return { pontos: brutos.map((p) => ({ t: new Date(p.t).toISOString(), v: p.v })), total };
   }

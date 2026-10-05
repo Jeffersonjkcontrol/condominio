@@ -103,7 +103,7 @@ async function coletarEventos(hoje: Date): Promise<Evento[]> {
   // cobre tanto "zerado agora" quanto o episódio da madrugada visto na manhã seguinte.
   const indicadores = await prisma.indicadorExterno.findMany({ where: { ativo: true } });
   for (const ind of indicadores) {
-    const analise = await analisarHistorico24h(ind.deviceLabel, ind.variableLabel);
+    const analise = await analisarHistorico24h(ind);
     if (!analise || analise.episodiosZero.length === 0) continue;
     const ultimo = analise.episodiosZero[analise.episodiosZero.length - 1];
     const fimMs = Date.parse(ultimo.fim);

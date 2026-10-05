@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { Building2, Sparkles, Check, X, Image as ImageIcon, Brain, Gauge, Plus } from "lucide-react";
+import { Building2, Sparkles, Check, X, Image as ImageIcon, Brain, Gauge, Plus, KeyRound } from "lucide-react";
 import { auth } from "@/auth";
 import { ehAdmin } from "@/lib/permissoes";
 import { getConfiguracao } from "@/lib/config";
-import { testarConexaoNexus, listarDevices } from "@/lib/nexus";
+import { catalogoNexus } from "@/lib/nexus";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,9 +12,51 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { salvarConfiguracao, removerChave, salvarLogo, removerLogo } from "@/app/actions/config";
 import { criarMemoria, atualizarMemoria, excluirMemoria } from "@/app/actions/memorias";
-import { criarIndicador, atualizarIndicador, excluirIndicador } from "@/app/actions/indicadores";
+import {
+  criarIndicador,
+  atualizarIndicador,
+  excluirIndicador,
+  criarConexaoNexus,
+  atualizarConexaoNexus,
+  excluirConexaoNexus,
+} from "@/app/actions/indicadores";
 import { IndicadorNovoForm } from "@/components/forms/indicador-novo-form";
 import { CamposTipoIndicador } from "@/components/forms/campos-tipo-indicador";
+
+type ChaveOpcao = { id: string; nome: string };
+
+/** Menu "qual chave de API lê este sensor" (só aparece quando há chaves adicionais). */
+function SeletorChave({ chaves, valor }: { chaves: ChaveOpcao[]; valor?: string | null }) {
+  if (chaves.length === 0) return null;
+  return (
+    <Select name="conexaoId" defaultValue={valor ?? ""} aria-label="Chave de API do sensor" className="sm:col-span-2">
+      <option value="">Chave: Principal</option>
+      {chaves.map((c) => (
+        <option key={c.id} value={c.id}>
+          Chave: {c.nome}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+function StatusChave({ status }: { status?: { ok: boolean; mensagem: string } }) {
+  if (!status)
+    return (
+      <Badge tone="default">
+        <X className="mr-1 h-3 w-3" /> Sem chave
+      </Badge>
+    );
+  return status.ok ? (
+    <Badge tone="success">
+      <Check className="mr-1 h-3 w-3" /> {status.mensagem}
+    </Badge>
+  ) : (
+    <Badge tone="danger">
+      <X className="mr-1 h-3 w-3" /> {status.mensagem}
+    </Badge>
+  );
+}
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -23,8 +65,18 @@ export default async function ConfiguracoesPage() {
   const config = await getConfiguracao();
   const memorias = await prisma.memoriaIA.findMany({ orderBy: { criadoEm: "desc" } });
   const indicadores = await prisma.indicadorExterno.findMany({ orderBy: { ordem: "asc" } });
-  const conexaoNexus = config.nexusApiKey ? await testarConexaoNexus() : null;
-  const catalogoDevices = config.nexusApiKey ? await listarDevices() : [];
+  // Chaves adicionais SEM o campo apiKey — o valor da chave nunca chega à página.
+  const chavesAdicionais = await prisma.conexaoNexus.findMany({
+    orderBy: { criadoEm: "asc" },
+    select: { id: true, nome: true, _count: { select: { indicadores: true } } },
+  });
+  // Testa cada chave e lista os devices que ela enxerga (status + menus). Sem a chave em si.
+  const catalogo = await catalogoNexus();
+  const statusPrincipal = catalogo.find((c) => c.id === null);
+  const conexoesComDevices = catalogo
+    .filter((c) => c.devices.length > 0)
+    .map(({ id, nome, devices }) => ({ id, nome, devices }));
+  const chavesOpcoes: ChaveOpcao[] = chavesAdicionais.map(({ id, nome }) => ({ id, nome }));
 
   const provedores = [
     {
@@ -292,21 +344,7 @@ export default async function ConfiguracoesPage() {
               </div>
             </div>
             <div>
-              {conexaoNexus ? (
-                conexaoNexus.ok ? (
-                  <Badge tone="success">
-                    <Check className="mr-1 h-3 w-3" /> {conexaoNexus.mensagem}
-                  </Badge>
-                ) : (
-                  <Badge tone="danger">
-                    <X className="mr-1 h-3 w-3" /> {conexaoNexus.mensagem}
-                  </Badge>
-                )
-              ) : (
-                <Badge tone="default">
-                  <X className="mr-1 h-3 w-3" /> Sem chave
-                </Badge>
-              )}
+              <StatusChave status={statusPrincipal} />
             </div>
           </CardContent>
         </Card>
@@ -338,6 +376,100 @@ export default async function ConfiguracoesPage() {
         )}
       </div>
 
+      {/* Chaves de API adicionais — sensores de outras organizações da jkcontrol.online */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-primary" /> Chaves de API adicionais (jkcontrol.online)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted">
+            Cada API Key só enxerga os devices da <strong>própria organização</strong>. Para usar um
+            sensor de outra organização (ex.: o reservatório de outro prédio), cadastre a chave dela
+            aqui — os devices aparecem no menu de sensores abaixo, e a chave principal continua
+            valendo para os demais. Use chave <strong>viewer</strong> (só leitura). As chaves ficam
+            apenas no servidor e não são exibidas de novo depois de salvas.
+          </p>
+
+          {chavesAdicionais.length > 0 && (
+            <ul className="space-y-2">
+              {chavesAdicionais.map((c) => {
+                const emUso = c._count.indicadores;
+                return (
+                  <li key={c.id} className="rounded-lg border border-border p-3">
+                    <form action={atualizarConexaoNexus} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+                      <input type="hidden" name="id" value={c.id} />
+                      <Input
+                        name="nome"
+                        required
+                        defaultValue={c.nome}
+                        autoComplete="off"
+                        aria-label="Nome da chave"
+                        className="sm:col-span-2"
+                      />
+                      {/* new-password: impede o navegador de preencher a senha de login aqui */}
+                      <Input
+                        name="apiKey"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="•••••••• (mantém a atual)"
+                        aria-label="Nova API Key (em branco mantém a atual)"
+                        className="sm:col-span-3"
+                      />
+                      <Button type="submit" variant="outline" size="sm" className="h-10">
+                        Salvar
+                      </Button>
+                    </form>
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <StatusChave status={catalogo.find((k) => k.id === c.id)} />
+                      <span className="text-xs text-muted">
+                        {emUso > 0 ? `usada por ${emUso} sensor(es)` : "nenhum sensor usa esta chave"}
+                      </span>
+                      <form action={excluirConexaoNexus} className="ml-auto">
+                        <input type="hidden" name="id" value={c.id} />
+                        <Button
+                          type="submit"
+                          variant="outline"
+                          size="sm"
+                          disabled={emUso > 0}
+                          title={emUso > 0 ? "Troque a chave dos sensores ou exclua-os antes" : undefined}
+                        >
+                          Excluir
+                        </Button>
+                      </form>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <form action={criarConexaoNexus} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+            <Input
+              name="nome"
+              required
+              autoComplete="off"
+              placeholder="Nome (ex.: Equilibrium)"
+              aria-label="Nome da nova chave"
+              className="sm:col-span-2"
+            />
+            <Input
+              name="apiKey"
+              type="password"
+              required
+              autoComplete="new-password"
+              placeholder="Cole a API Key (ag_…)"
+              aria-label="Nova API Key"
+              className="sm:col-span-3"
+            />
+            <Button type="submit" className="h-10">
+              Adicionar
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
       {/* Indicadores externos — sensores exibidos no Dashboard */}
       <Card className="mt-6">
         <CardHeader>
@@ -353,13 +485,13 @@ export default async function ConfiguracoesPage() {
             convertida em litros) — o consumo diário passa a ser calculado automaticamente.
           </p>
 
-          {catalogoDevices.length > 0 ? (
-            <IndicadorNovoForm action={criarIndicador} devices={catalogoDevices} />
+          {conexoesComDevices.length > 0 ? (
+            <IndicadorNovoForm action={criarIndicador} conexoes={conexoesComDevices} />
           ) : (
             <>
               <p className="text-xs text-muted">
-                {config.nexusApiKey
-                  ? "Nenhum device encontrado na plataforma (confira a conexão acima)."
+                {catalogo.length > 0
+                  ? "Nenhum device encontrado na plataforma (confira as chaves acima)."
                   : "Configure e salve a API Key acima para escolher os sensores em menus."}
               </p>
               <form action={criarIndicador} className="grid grid-cols-1 gap-2 sm:grid-cols-6">
@@ -373,6 +505,7 @@ export default async function ConfiguracoesPage() {
                   </Button>
                 </div>
                 <CamposTipoIndicador />
+                <SeletorChave chaves={chavesOpcoes} />
               </form>
             </>
           )}
@@ -399,7 +532,12 @@ export default async function ConfiguracoesPage() {
                       capacidadeLitros={ind.capacidadeLitros}
                       reservaLitros={ind.reservaLitros}
                     />
-                    <label className="flex items-center gap-2 text-xs text-muted sm:col-span-6">
+                    <SeletorChave chaves={chavesOpcoes} valor={ind.conexaoId} />
+                    <label
+                      className={`flex items-center gap-2 text-xs text-muted ${
+                        chavesOpcoes.length > 0 ? "sm:col-span-4" : "sm:col-span-6"
+                      }`}
+                    >
                       <input type="checkbox" name="ativo" defaultChecked={ind.ativo} /> Ativo (aparece no
                       Dashboard)
                     </label>

@@ -31,6 +31,7 @@ const schema = z
     tipo: z.enum(TIPOS_INDICADOR).default("GENERICO"),
     capacidadeLitros: litrosOpcional,
     reservaLitros: litrosOpcional,
+    conexaoId: z.string().trim().optional(), // vazio = chave principal
   })
   .refine((d) => d.tipo !== "NIVEL_RESERVATORIO" || (d.capacidadeLitros ?? 0) > 0, {
     message: "Informe a capacidade do reservatório (litros).",
@@ -51,7 +52,16 @@ function ler(formData: FormData) {
     tipo: (formData.get("tipo") as string) || undefined,
     capacidadeLitros: formData.get("capacidadeLitros"),
     reservaLitros: formData.get("reservaLitros"),
+    conexaoId: (formData.get("conexaoId") as string) || undefined,
   });
+}
+
+/** Confere que a chave adicional escolhida existe; vazio = principal (null). */
+async function conexaoValida(conexaoId: string | undefined): Promise<string | null> {
+  if (!conexaoId) return null;
+  const existe = await prisma.conexaoNexus.findUnique({ where: { id: conexaoId }, select: { id: true } });
+  if (!existe) throw new Error("Chave de API não encontrada.");
+  return conexaoId;
 }
 
 function revalidar(id?: string) {
@@ -64,6 +74,7 @@ function revalidar(id?: string) {
 export async function criarIndicador(formData: FormData) {
   await exigirAdmin();
   const d = ler(formData);
+  const conexaoId = await conexaoValida(d.conexaoId);
   await prisma.indicadorExterno.create({
     data: {
       nome: d.nome,
@@ -74,6 +85,7 @@ export async function criarIndicador(formData: FormData) {
       tipo: d.tipo,
       capacidadeLitros: d.capacidadeLitros ?? null,
       reservaLitros: d.reservaLitros ?? null,
+      conexaoId,
     },
   });
   await registrar("CRIOU", "Indicador externo", `${d.nome} (${d.deviceLabel}/${d.variableLabel})`);
@@ -84,6 +96,7 @@ export async function atualizarIndicador(formData: FormData) {
   await exigirAdmin();
   const id = String(formData.get("id"));
   const d = ler(formData);
+  const conexaoId = await conexaoValida(d.conexaoId);
   const antes = await prisma.indicadorExterno.findUnique({ where: { id } });
   await prisma.indicadorExterno.update({
     where: { id },
@@ -97,12 +110,15 @@ export async function atualizarIndicador(formData: FormData) {
       tipo: d.tipo,
       capacidadeLitros: d.capacidadeLitros ?? null,
       reservaLitros: d.reservaLitros ?? null,
+      conexaoId,
     },
   });
   // Mudou algo que altera o cálculo do consumo → descarta o histórico; ele é refeito sozinho.
+  // (Outra chave = outra organização = outra série de dados.)
   const mudouCalculo =
     antes &&
     (antes.tipo !== d.tipo ||
+      (antes.conexaoId ?? null) !== conexaoId ||
       antes.deviceLabel !== d.deviceLabel ||
       antes.variableLabel !== d.variableLabel ||
       (antes.unidade ?? null) !== (d.unidade ?? null) ||
@@ -134,5 +150,50 @@ export async function excluirIndicador(formData: FormData) {
   const ind = await prisma.indicadorExterno.findUnique({ where: { id } });
   await prisma.indicadorExterno.delete({ where: { id } });
   if (ind) await registrar("EXCLUIU", "Indicador externo", ind.nome, id);
+  revalidar();
+}
+
+// ── Chaves de API adicionais (sensores de outras organizações da jkcontrol.online) ──
+// A chave nunca é devolvida para a tela nem registrada na auditoria.
+
+const ENTIDADE_CHAVE = "Chave de API (jkcontrol.online)";
+const nomeChave = z.string().trim().min(1, "Informe um nome para a chave.").max(60, "Nome muito longo.");
+const valorChave = z
+  .string()
+  .trim()
+  .min(8, "Chave muito curta.")
+  .max(500, "Chave muito longa.")
+  .regex(/^\S+$/, "A chave não pode ter espaços.");
+
+export async function criarConexaoNexus(formData: FormData) {
+  await exigirAdmin();
+  const nome = nomeChave.parse(formData.get("nome"));
+  const apiKey = valorChave.parse(formData.get("apiKey"));
+  const c = await prisma.conexaoNexus.create({ data: { nome, apiKey } });
+  await registrar("CRIOU", ENTIDADE_CHAVE, nome, c.id);
+  revalidar();
+}
+
+/** Renomeia e/ou troca a chave (campo da chave em branco = mantém a atual). */
+export async function atualizarConexaoNexus(formData: FormData) {
+  await exigirAdmin();
+  const id = String(formData.get("id"));
+  const nome = nomeChave.parse(formData.get("nome"));
+  const novaChave = String(formData.get("apiKey") ?? "").trim();
+  const apiKey = novaChave ? valorChave.parse(novaChave) : undefined;
+  await prisma.conexaoNexus.update({ where: { id }, data: { nome, ...(apiKey ? { apiKey } : {}) } });
+  await registrar("EDITOU", ENTIDADE_CHAVE, `${nome}${apiKey ? " (chave substituída)" : ""}`, id);
+  revalidar();
+}
+
+export async function excluirConexaoNexus(formData: FormData) {
+  await exigirAdmin();
+  const id = String(formData.get("id"));
+  const emUso = await prisma.indicadorExterno.count({ where: { conexaoId: id } });
+  if (emUso > 0) {
+    throw new Error(`Esta chave é usada por ${emUso} sensor(es). Troque a chave deles ou exclua-os antes.`);
+  }
+  const c = await prisma.conexaoNexus.delete({ where: { id } });
+  await registrar("EXCLUIU", ENTIDADE_CHAVE, c.nome, id);
   revalidar();
 }

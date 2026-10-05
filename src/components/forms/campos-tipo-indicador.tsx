@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { TIPOS_INDICADOR, TIPO_INDICADOR_LABEL, type TipoIndicador } from "@/lib/agua-calc";
 
@@ -24,9 +24,22 @@ export function CamposTipoIndicador({
   const inicial = (TIPOS_INDICADOR as readonly string[]).includes(tipo) ? (tipo as TipoIndicador) : "GENERICO";
   const [t, setT] = useState<TipoIndicador>(inicial);
 
+  // O React 19 reseta o <form> depois da action: o select volta ao padrão, mas o estado não
+  // (mostraria "Genérico" com os campos de capacidade abertos). Ressincroniza no "reset" —
+  // `inicial` já é o valor salvo quando o servidor re-renderiza.
+  const ref = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    const form = ref.current?.form;
+    if (!form) return;
+    const aoResetar = () => setT(inicial);
+    form.addEventListener("reset", aoResetar);
+    return () => form.removeEventListener("reset", aoResetar);
+  }, [inicial]);
+
   return (
     <div className="grid grid-cols-1 gap-2 sm:col-span-6 sm:grid-cols-6">
       <Select
+        ref={ref}
         name="tipo"
         value={t}
         onChange={(e) => setT(e.target.value as TipoIndicador)}

@@ -115,7 +115,7 @@ async function montarContexto(nomeCondominio: string, incluirSensivel: boolean):
         s.timestamp ? ` (leitura em ${formatarDataHoraBR(s.timestamp)})` : ""
       }`;
       const cfg = indicadoresCfg.find((i) => i.id === s.id);
-      const analise = cfg ? await analisarHistorico24h(cfg.deviceLabel, cfg.variableLabel) : null;
+      const analise = cfg ? await analisarHistorico24h(cfg) : null;
       if (analise) {
         const n = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
         linha += `\n    · Últimas 24h: mín ${n(analise.min)}, máx ${n(analise.max)}, média ${n(analise.media)}${un}`;
