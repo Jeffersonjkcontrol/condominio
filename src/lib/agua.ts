@@ -18,11 +18,13 @@ import {
 // faltam — sem cron e sem servidor rodando 24h.
 
 const INTERVALO_MS = 30 * 60_000; // em dia: no máximo 1 rodada a cada 30 min
-const INTERVALO_ATRASADO_MS = 60_000; // recuperando histórico: rodadas a cada 1 min
+const INTERVALO_ATRASADO_MS = 10_000; // recuperando histórico: a próxima página já continua
 const INTERVALO_SEM_SENSOR_MS = 5 * 60_000; // nenhum sensor de consumo ainda: checa de novo logo
 const DIAS_HISTORICO = 90; // 1ª vez: busca até 90 dias para trás
-const DIAS_POR_RODADA = 15; // dias COM leitura por rodada (limita o trabalho)
-const DIAS_MAX_POR_RODADA = 100; // teto incluindo dias vazios (antes do sensor existir são baratos)
+// Orçamento por rodada: roda depois da resposta (after()), então não deixa a página lenta.
+// ~0,15 s por dia → os 90 dias iniciais cabem numa rodada só.
+const TEMPO_MAX_RODADA_MS = 20_000;
+const DIAS_MAX_POR_RODADA = 200; // teto de segurança (somando todos os sensores)
 const DIA_MS = 86_400_000;
 
 let proximaExecucao = 0;
@@ -108,7 +110,7 @@ export async function processarConsumo(forcar = false): Promise<{ processados: n
       if (ind.leiturasDesde && dia < ind.leiturasDesde) dia = ind.leiturasDesde; // ex.: sensor trocado
 
       while (dia <= ontem) {
-        if (processados >= DIAS_POR_RODADA || vistos >= DIAS_MAX_POR_RODADA) {
+        if (Date.now() - agora > TEMPO_MAX_RODADA_MS || vistos >= DIAS_MAX_POR_RODADA) {
           atrasado = true;
           break;
         }
@@ -129,7 +131,7 @@ export async function processarConsumo(forcar = false): Promise<{ processados: n
   } catch (e) {
     console.error("processarConsumo:", e);
   } finally {
-    if (atrasado) proximaExecucao = agora + INTERVALO_ATRASADO_MS;
+    if (atrasado) proximaExecucao = Date.now() + INTERVALO_ATRASADO_MS; // conta do FIM da rodada
     rodando = false;
   }
   return { processados };
