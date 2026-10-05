@@ -77,6 +77,22 @@ export function formatarVolume(litros: number): string {
 // Agregação diária
 // ---------------------------------------------------------------------------
 
+/** Defeito detectado nas leituras do dia — o consumo calculado não é confiável. */
+export type ProblemaDia = "SALTOS" | "TRAVADO";
+
+export const PROBLEMA_DIA_LABEL: Record<ProblemaDia, string> = {
+  SALTOS: "saltos impossíveis nas leituras (sensor com defeito?)",
+  TRAVADO: "nível parado o dia todo (sensor travado ou caixa sempre cheia)",
+};
+
+/** Abaixo disso (fração das 24h com leitura) o dia é considerado incompleto. */
+export const COBERTURA_MINIMA = 0.5;
+
+/** Dia que entra em médias, máximos e rankings: dado suficiente e sem defeito detectado. */
+export function diaConfiavel(d: { cobertura: number; problema?: string | null }): boolean {
+  return d.cobertura >= COBERTURA_MINIMA && !d.problema;
+}
+
 export type ResultadoDia = {
   /** Consumo total do dia = medido + estimado durante o enchimento. */
   consumoLitros: number;
@@ -92,6 +108,8 @@ export type ResultadoDia = {
   amostras: number;
   /** Fração das 24 horas do dia com pelo menos uma leitura (qualidade do dado). */
   cobertura: number;
+  /** Defeito detectado nas leituras (null = ok). */
+  problema: ProblemaDia | null;
 };
 
 export type OpcoesAgregacao = {
@@ -137,6 +155,7 @@ function vazio(amostras: number, cobertura: number): ResultadoDia {
     nivelMaximo: null,
     amostras,
     cobertura,
+    problema: null,
   };
 }
 
@@ -155,6 +174,29 @@ type Movimento = { tIni: number; tFim: number; litros: number };
 const JANELA_TAXA_MS = 60 * 60_000; // olha 1h antes/depois do enchimento para estimar a vazão de saída
 const EMENDA_ENCHIMENTO_MS = 15 * 60_000; // subidas separadas por até 15 min = mesmo enchimento
 
+// Detecção de defeito do sensor (sobre a série JÁ filtrada pela mediana: pico isolado não conta).
+// Uma bomba de verdade enche ~1–3% da caixa por minuto; acima de 10%/min é o sensor pulando
+// (ex.: ultrassom perdendo o eco e lendo 0 ↔ cheio).
+const SALTO_FRACAO_POR_MIN = 0.1;
+const SALTO_JANELA_MAX_MS = 10 * 60_000; // só compara leituras próximas (buraco maior = sem conclusão)
+const SALTOS_PARA_DEFEITO = 3;
+
+function detectarProblema(ts: number[], vs: number[], cobertura: number, base: number, limiar: number): ProblemaDia | null {
+  if (base > 0) {
+    let saltos = 0;
+    for (let i = 1; i < vs.length; i++) {
+      const dt = ts[i] - ts[i - 1];
+      if (dt <= 0 || dt > SALTO_JANELA_MAX_MS) continue;
+      const maxPlausivel = SALTO_FRACAO_POR_MIN * base * Math.max(1, dt / 60_000);
+      if (Math.abs(vs[i] - vs[i - 1]) > maxPlausivel && ++saltos >= SALTOS_PARA_DEFEITO) return "SALTOS";
+    }
+  }
+  // Nível real sempre se mexe (consumo, bomba, ruído). Parado o dia inteiro = sensor travado
+  // ou caixa cheia com boia repondo — nos dois casos o consumo não aparece no nível.
+  if (cobertura >= COBERTURA_MINIMA && Math.max(...vs) - Math.min(...vs) < limiar) return "TRAVADO";
+  return null;
+}
+
 /**
  * Nível de reservatório (leituras já em litros): consumo = quedas do nível; subidas = enchimento.
  * Durante o enchimento a saída continua mas fica mascarada pela entrada — ela é estimada pela
@@ -170,6 +212,8 @@ function agregarNivel(leituras: Leitura[], opts: OpcoesAgregacao): ResultadoDia 
 
   const base = opts.capacidadeLitros || r.nivelMaximo || 0;
   const limiar = opts.limiarLitros ?? Math.max(1, base * 0.002);
+  // Saltos só com a capacidade informada (sem ela, "10% da caixa" não tem referência confiável).
+  r.problema = detectarProblema(ts, vs, r.cobertura, opts.capacidadeLitros || 0, limiar);
 
   // Histerese: só conta o movimento quando ele passa do limiar em relação à última âncora.
   const quedas: Movimento[] = [];

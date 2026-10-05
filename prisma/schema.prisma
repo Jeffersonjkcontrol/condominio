@@ -264,6 +264,8 @@ model IndicadorExterno {
   // Reservatório: capacidade total e reserva técnica de incêndio (o "vazio" útil), em litros
   capacidadeLitros Float?
   reservaLitros    Float?
+  // "AAAA-MM-DD": ignora leituras anteriores no consumo (ex.: sensor trocado, instalação/calibração)
+  leiturasDesde    String?
 
   // Chave de API usada para ler este sensor. Vazio = chave principal (Configuracao.nexusApiKey).
   conexaoId String?
@@ -299,6 +301,7 @@ model ConsumoDiario {
   nivelMaximo           Float?
   amostras              Int
   cobertura             Float    // 0–1: fração das 24h com leitura (qualidade do dado)
+  problema              String?  // SALTOS | TRAVADO: defeito do sensor — dia fora de médias/rankings
   calculadoEm           DateTime @default(now())
 
   @@unique([indicadorId, dia])

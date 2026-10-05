@@ -1,17 +1,23 @@
 "use client";
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
-import { formatarVolume } from "@/lib/agua-calc";
+import {
+  formatarVolume,
+  diaConfiavel,
+  COBERTURA_MINIMA,
+  PROBLEMA_DIA_LABEL,
+  type ProblemaDia,
+} from "@/lib/agua-calc";
 
 export type BarraConsumo = {
   dia: string; // AAAA-MM-DD
   consumoLitros: number;
   consumoEstimadoLitros: number;
   cobertura: number; // 0–1
+  problema: string | null; // defeito detectado no sensor (ver agua-calc)
 };
 
 const SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
-const COBERTURA_MINIMA = 0.5; // abaixo disso o dia é marcado como incompleto
 
 function rotuloDia(dia: string, comSemana = false): string {
   const [, m, d] = dia.split("-");
@@ -19,7 +25,8 @@ function rotuloDia(dia: string, comSemana = false): string {
   return `${SEMANA[new Date(`${dia}T12:00:00Z`).getUTCDay()]}, ${d}/${m}`;
 }
 
-/** Consumo diário (uma barra por dia). Série única → cor primária do tema, sem legenda. */
+/** Consumo diário (uma barra por dia). Série única → cor primária do tema, sem legenda.
+ *  Barra clara = dia não confiável (incompleto ou com defeito do sensor). */
 export function ConsumoChart({ dias }: { dias: BarraConsumo[] }) {
   if (dias.length === 0)
     return <p className="py-12 text-center text-sm text-muted">Ainda sem dias processados.</p>;
@@ -47,7 +54,9 @@ export function ConsumoChart({ dias }: { dias: BarraConsumo[] }) {
             const partes = [formatarVolume(b.consumoLitros)];
             if (b.consumoEstimadoLitros > 0)
               partes.push(`(inclui ~${formatarVolume(b.consumoEstimadoLitros)} estimados no enchimento)`);
-            if (b.cobertura < COBERTURA_MINIMA)
+            if (b.problema)
+              partes.push(`· NÃO CONFIÁVEL: ${PROBLEMA_DIA_LABEL[b.problema as ProblemaDia] ?? b.problema}`);
+            else if (b.cobertura < COBERTURA_MINIMA)
               partes.push(`· dados incompletos (${Math.round(b.cobertura * 100)}% do dia)`);
             return [partes.join(" "), "Consumo"];
           }}
@@ -56,15 +65,13 @@ export function ConsumoChart({ dias }: { dias: BarraConsumo[] }) {
             border: "1px solid var(--border)",
             borderRadius: 8,
             color: "var(--foreground)",
+            whiteSpace: "normal", // o padrão do Recharts é nowrap: texto longo vazaria da tela no celular
+            maxWidth: 280,
           }}
         />
         <Bar dataKey="consumoLitros" radius={[4, 4, 0, 0]}>
           {dias.map((d) => (
-            <Cell
-              key={d.dia}
-              fill="var(--primary)"
-              fillOpacity={d.cobertura < COBERTURA_MINIMA ? 0.35 : 1}
-            />
+            <Cell key={d.dia} fill="var(--primary)" fillOpacity={diaConfiavel(d) ? 1 : 0.35} />
           ))}
         </Bar>
       </BarChart>

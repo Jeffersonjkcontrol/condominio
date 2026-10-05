@@ -36,6 +36,7 @@ type IndicadorConsumo = {
   tipo: string;
   capacidadeLitros: number | null;
   conexaoId: string | null;
+  leiturasDesde: string | null;
 };
 
 /** Leituras de um dia de Brasília, já em litros. `ok: false` = não dá para confiar (não gravar). */
@@ -70,6 +71,7 @@ function dadosDoDia(r: ResultadoDia) {
     nivelMaximo: r.nivelMaximo == null ? null : um(r.nivelMaximo),
     amostras: r.amostras,
     cobertura: r.cobertura,
+    problema: r.problema,
   };
 }
 
@@ -103,6 +105,7 @@ export async function processarConsumo(forcar = false): Promise<{ processados: n
         select: { dia: true },
       });
       let dia = ultimo ? somarDias(ultimo.dia, 1) : somarDias(ontem, -(DIAS_HISTORICO - 1));
+      if (ind.leiturasDesde && dia < ind.leiturasDesde) dia = ind.leiturasDesde; // ex.: sensor trocado
 
       while (dia <= ontem) {
         if (processados >= DIAS_POR_RODADA || vistos >= DIAS_MAX_POR_RODADA) {
@@ -140,7 +143,9 @@ export function liberarProcessamento() {
 /** Consumo de hoje até agora (calculado ao vivo, cache de 60s). null = plataforma indisponível. */
 export async function consumoDeHoje(ind: IndicadorConsumo): Promise<ResultadoDia | null> {
   if (!calculaConsumo(ind.tipo)) return null;
-  const { ok, leituras } = await leiturasDoDia(ind, diaBR(Date.now()), 60);
+  const hoje = diaBR(Date.now());
+  if (ind.leiturasDesde && hoje < ind.leiturasDesde) return null;
+  const { ok, leituras } = await leiturasDoDia(ind, hoje, 60);
   if (!ok) return null;
   return agregarDia(leituras, ind.tipo, { capacidadeLitros: ind.capacidadeLitros });
 }
@@ -154,7 +159,18 @@ export type DiaConsumo = {
   horaPico: number | null;
   cobertura: number;
   amostras: number;
+  problema: string | null;
 };
+
+/** O histórico já foi processado até ontem? (com data inicial recente pode haver menos de 30 dias e estar em dia) */
+export async function historicoEmDia(indicadorId: string): Promise<boolean> {
+  const ultimo = await prisma.consumoDiario.findFirst({
+    where: { indicadorId },
+    orderBy: { dia: "desc" },
+    select: { dia: true },
+  });
+  return !!ultimo && ultimo.dia >= somarDias(diaBR(Date.now()), -1);
+}
 
 /** Consumo diário guardado dos últimos `dias` dias (mais antigo → mais recente). */
 export async function historicoConsumo(indicadorId: string, dias = 30): Promise<DiaConsumo[]> {
@@ -179,6 +195,7 @@ export async function historicoConsumo(indicadorId: string, dias = 30): Promise<
       horaPico: l.horaPico,
       cobertura: l.cobertura,
       amostras: l.amostras,
+      problema: l.problema,
     };
   });
 }

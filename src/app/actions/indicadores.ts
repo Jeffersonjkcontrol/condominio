@@ -32,6 +32,15 @@ const schema = z
     capacidadeLitros: litrosOpcional,
     reservaLitros: litrosOpcional,
     conexaoId: z.string().trim().optional(), // vazio = chave principal
+    // Ignora leituras anteriores no consumo (ex.: sensor trocado). Vazio = sem corte.
+    leiturasDesde: z.preprocess(
+      (v) => (v === null || v === undefined || String(v).trim() === "" ? undefined : String(v).trim()),
+      z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.")
+        .refine((s) => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)), "Data inválida.")
+        .optional()
+    ),
   })
   .refine((d) => d.tipo !== "NIVEL_RESERVATORIO" || (d.capacidadeLitros ?? 0) > 0, {
     message: "Informe a capacidade do reservatório (litros).",
@@ -53,6 +62,7 @@ function ler(formData: FormData) {
     capacidadeLitros: formData.get("capacidadeLitros"),
     reservaLitros: formData.get("reservaLitros"),
     conexaoId: (formData.get("conexaoId") as string) || undefined,
+    leiturasDesde: formData.get("leiturasDesde"),
   });
 }
 
@@ -85,6 +95,7 @@ export async function criarIndicador(formData: FormData) {
       tipo: d.tipo,
       capacidadeLitros: d.capacidadeLitros ?? null,
       reservaLitros: d.reservaLitros ?? null,
+      leiturasDesde: d.leiturasDesde ?? null,
       conexaoId,
     },
   });
@@ -110,6 +121,7 @@ export async function atualizarIndicador(formData: FormData) {
       tipo: d.tipo,
       capacidadeLitros: d.capacidadeLitros ?? null,
       reservaLitros: d.reservaLitros ?? null,
+      leiturasDesde: d.leiturasDesde ?? null,
       conexaoId,
     },
   });
@@ -119,6 +131,7 @@ export async function atualizarIndicador(formData: FormData) {
     antes &&
     (antes.tipo !== d.tipo ||
       (antes.conexaoId ?? null) !== conexaoId ||
+      (antes.leiturasDesde ?? null) !== (d.leiturasDesde ?? null) ||
       antes.deviceLabel !== d.deviceLabel ||
       antes.variableLabel !== d.variableLabel ||
       (antes.unidade ?? null) !== (d.unidade ?? null) ||

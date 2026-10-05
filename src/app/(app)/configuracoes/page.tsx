@@ -531,6 +531,7 @@ export default async function ConfiguracoesPage() {
                       tipo={ind.tipo}
                       capacidadeLitros={ind.capacidadeLitros}
                       reservaLitros={ind.reservaLitros}
+                      leiturasDesde={ind.leiturasDesde}
                     />
                     <SeletorChave chaves={chavesOpcoes} valor={ind.conexaoId} />
                     <label

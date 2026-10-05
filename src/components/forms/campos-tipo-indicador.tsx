@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
-import { TIPOS_INDICADOR, TIPO_INDICADOR_LABEL, type TipoIndicador } from "@/lib/agua-calc";
+import { TIPOS_INDICADOR, TIPO_INDICADOR_LABEL, calculaConsumo, type TipoIndicador } from "@/lib/agua-calc";
 
 const DICA: Record<TipoIndicador, string> = {
   GENERICO: "Mostra o valor atual e o histórico.",
@@ -11,15 +11,18 @@ const DICA: Record<TipoIndicador, string> = {
   CONSUMO_ACUMULADO: "Hidrômetro com contador: consumo = soma dos incrementos.",
 };
 
-/** Tipo do sensor + (só para reservatório) capacidade e reserva de incêndio. Ocupa uma linha inteira do form. */
+/** Tipo do sensor + (só para reservatório) capacidade e reserva de incêndio + (tipos com consumo)
+ *  data a partir da qual as leituras valem. Ocupa uma linha inteira do form. */
 export function CamposTipoIndicador({
   tipo = "GENERICO",
   capacidadeLitros,
   reservaLitros,
+  leiturasDesde,
 }: {
   tipo?: string;
   capacidadeLitros?: number | null;
   reservaLitros?: number | null;
+  leiturasDesde?: string | null;
 }) {
   const inicial = (TIPOS_INDICADOR as readonly string[]).includes(tipo) ? (tipo as TipoIndicador) : "GENERICO";
   const [t, setT] = useState<TipoIndicador>(inicial);
@@ -78,6 +81,19 @@ export function CamposTipoIndicador({
         </>
       ) : (
         <p className="self-center text-xs text-muted sm:col-span-4">{DICA[t]}</p>
+      )}
+      {calculaConsumo(t) && (
+        <label className="flex flex-wrap items-center gap-2 text-xs text-muted sm:col-span-6">
+          Considerar leituras a partir de
+          <Input
+            name="leiturasDesde"
+            type="date"
+            defaultValue={leiturasDesde ?? ""}
+            aria-label="Considerar leituras a partir de"
+            className="h-9 w-auto"
+          />
+          <span>(opcional — ex.: data da troca do sensor; o que vier antes é ignorado no consumo)</span>
+        </label>
       )}
     </div>
   );

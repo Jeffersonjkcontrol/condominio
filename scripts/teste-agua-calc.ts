@@ -14,6 +14,7 @@ import {
   paraLitros,
   formatarVolume,
   filtroMediana,
+  diaConfiavel,
   type Leitura,
 } from "../src/lib/agua-calc";
 
@@ -185,6 +186,57 @@ teste("dia sem leituras", () => {
   assert.equal(r.amostras, 0);
   assert.equal(r.cobertura, 0);
   assert.equal(r.horaPico, null);
+});
+
+console.log("— Defeito do sensor");
+teste("dias normais (bomba, ruído, picos isolados, lacuna, 5 min) não são marcados", () => {
+  const cenarios: Sim[] = [
+    { capacidade: 100_000, inicial: 95_000 },
+    { capacidade: 20_000, inicial: 15_000, bomba: BOMBA },
+    { capacidade: 20_000, inicial: 15_000, bomba: BOMBA, ruido: 10, picos: 0.005, seed: 7 },
+    { capacidade: 20_000, inicial: 15_000, bomba: BOMBA, ruido: 30, picos: 0.02, seed: 11 },
+    { capacidade: 100_000, inicial: 95_000, lacunaHoras: [2, 5] },
+    { capacidade: 20_000, inicial: 15_000, bomba: BOMBA, intervaloMin: 5 },
+    // caixa pequena com bomba forte: 300 L/min numa caixa de 5.000 L = 6%/min, ainda plausível
+    { capacidade: 5_000, inicial: 4_000, bomba: { vazao: 300, liga: 0.4, desliga: 0.9 } },
+  ];
+  for (const s of cenarios) {
+    const r = agregarDia(simularDia(s).leituras, "NIVEL_RESERVATORIO", opts(s.capacidade));
+    assert.equal(r.problema, null, `cenário ${JSON.stringify(s)} marcado como ${r.problema}`);
+  }
+});
+
+teste("sensor pulando entre 0 e cheio é marcado SALTOS", () => {
+  const { leituras } = simularDia({ capacidade: 160_000, inicial: 140_000, seed: 3 });
+  const r0 = rng(5);
+  // das 10h às 12h o sensor lê lixo: valores aleatórios entre 0 e a capacidade (sustentado — a mediana não salva)
+  const ini = inicioDiaBR(DIA);
+  const sujas = leituras.map((l) =>
+    l.t >= ini + 10 * 3_600_000 && l.t < ini + 12 * 3_600_000 ? { t: l.t, v: r0() * 160_000 } : l
+  );
+  assert.equal(agregarDia(sujas, "NIVEL_RESERVATORIO", opts(160_000)).problema, "SALTOS");
+});
+
+teste("nível parado o dia todo (travado no máximo) é marcado TRAVADO", () => {
+  const ini = inicioDiaBR(DIA);
+  const leituras: Leitura[] = [];
+  for (let m = 0; m < 1440; m += 2) leituras.push({ t: ini + m * 60_000, v: 160_000 });
+  const r = agregarDia(leituras, "NIVEL_RESERVATORIO", opts(160_000));
+  assert.equal(r.problema, "TRAVADO");
+  assert.equal(r.consumoLitros, 0);
+});
+
+teste("poucas horas paradas (cobertura < 50%) não bastam para marcar TRAVADO", () => {
+  const ini = inicioDiaBR(DIA);
+  const leituras: Leitura[] = [];
+  for (let m = 0; m < 600; m += 2) leituras.push({ t: ini + m * 60_000, v: 80_000 }); // só 10h de leitura
+  assert.equal(agregarDia(leituras, "NIVEL_RESERVATORIO", opts(160_000)).problema, null);
+});
+
+teste("diaConfiavel: precisa de cobertura ≥ 50% e nenhum defeito", () => {
+  assert.equal(diaConfiavel({ cobertura: 1, problema: null }), true);
+  assert.equal(diaConfiavel({ cobertura: 0.4, problema: null }), false);
+  assert.equal(diaConfiavel({ cobertura: 1, problema: "SALTOS" }), false);
 });
 
 console.log("— Hidrômetro (consumo acumulado)");

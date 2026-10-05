@@ -7,8 +7,8 @@ import { ehAdmin } from "@/lib/permissoes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { buscarIndicadores, buscarHistorico } from "@/lib/nexus";
-import { historicoConsumo, consumoDeHoje } from "@/lib/agua";
-import { calculaConsumo, formatarVolume } from "@/lib/agua-calc";
+import { historicoConsumo, consumoDeHoje, historicoEmDia } from "@/lib/agua";
+import { calculaConsumo, formatarVolume, diaConfiavel } from "@/lib/agua-calc";
 import { recalcularConsumo } from "@/app/actions/indicadores";
 import { SensorChart } from "@/components/sensor-chart";
 import { ConsumoChart } from "@/components/consumo-chart";
@@ -50,20 +50,22 @@ export default async function IndicadorDetalhePage({
   if (!indicador) notFound();
 
   const temConsumo = calculaConsumo(indicador.tipo);
-  const [leituras, historico, dias, hoje, session] = await Promise.all([
+  const [leituras, historico, dias, hoje, emDia, session] = await Promise.all([
     buscarIndicadores(),
     buscarHistorico(indicador, horas),
     temConsumo ? historicoConsumo(id, DIAS_GRAFICO) : Promise.resolve([]),
     temConsumo ? consumoDeHoje(indicador) : Promise.resolve(null),
+    temConsumo ? historicoEmDia(id) : Promise.resolve(false),
     auth(),
   ]);
   const atual = leituras.find((l) => l.id === id);
   const admin = ehAdmin(session?.user.papel);
 
   // Dias sem nenhuma leitura (ex.: antes do sensor existir) ficam fora do gráfico;
-  // só dias com pelo menos metade das horas com leitura entram nas médias.
+  // só dias confiáveis (≥ metade das horas com leitura e sem defeito do sensor) entram nas médias.
   const diasComLeitura = dias.filter((d) => d.amostras > 0);
-  const diasValidos = dias.filter((d) => d.cobertura >= 0.5);
+  const diasValidos = dias.filter(diaConfiavel);
+  const diasComDefeito = dias.filter((d) => d.problema).length;
   const mediaDia = diasValidos.length
     ? diasValidos.reduce((s, d) => s + d.consumoLitros, 0) / diasValidos.length
     : null;
@@ -174,12 +176,16 @@ export default async function IndicadorDetalhePage({
               <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Droplets className="h-5 w-5 text-primary" /> Consumo de água
               </h2>
-              {indicador.capacidadeLitros ? (
+              {indicador.capacidadeLitros || indicador.leiturasDesde ? (
                 <p className="text-xs text-muted">
-                  Capacidade {formatarVolume(indicador.capacidadeLitros)}
-                  {indicador.reservaLitros
-                    ? ` · reserva de incêndio ${formatarVolume(indicador.reservaLitros)}`
-                    : ""}
+                  {[
+                    indicador.capacidadeLitros && `Capacidade ${formatarVolume(indicador.capacidadeLitros)}`,
+                    indicador.reservaLitros && `reserva de incêndio ${formatarVolume(indicador.reservaLitros)}`,
+                    indicador.leiturasDesde &&
+                      `leituras consideradas a partir de ${indicador.leiturasDesde.split("-").reverse().join("/")}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               ) : null}
             </div>
@@ -203,7 +209,9 @@ export default async function IndicadorDetalhePage({
                 <p className="text-xs text-muted">
                   {hoje == null
                     ? "plataforma indisponível"
-                    : hoje.horaPico != null
+                    : hoje.problema === "SALTOS"
+                      ? "leituras suspeitas hoje (saltos no sensor)"
+                      : hoje.horaPico != null
                       ? `pico às ${hoje.horaPico}h`
                       : "sem consumo registrado"}
                 </p>
@@ -215,7 +223,10 @@ export default async function IndicadorDetalhePage({
                 <p className="text-xl font-bold text-foreground">
                   {mediaDia != null ? formatarVolume(mediaDia) : "—"}
                 </p>
-                <p className="text-xs text-muted">{diasValidos.length} dia(s) com dado completo</p>
+                <p className="text-xs text-muted">
+                  {diasValidos.length} dia(s) com dado confiável
+                  {diasComDefeito > 0 ? ` · ${diasComDefeito} com defeito do sensor` : ""}
+                </p>
               </CardContent>
             </Card>
             <Card>
@@ -232,9 +243,7 @@ export default async function IndicadorDetalhePage({
                 <p className="text-sm text-muted">Histórico</p>
                 <p className="text-xl font-bold text-foreground">{diasComLeitura.length} dia(s)</p>
                 <p className="text-xs text-muted">
-                  {dias.length < DIAS_GRAFICO
-                    ? "montando em segundo plano…"
-                    : `com leitura nos últimos ${DIAS_GRAFICO}`}
+                  {emDia ? `com leitura nos últimos ${DIAS_GRAFICO}` : "montando em segundo plano…"}
                 </p>
               </CardContent>
             </Card>
@@ -251,12 +260,14 @@ export default async function IndicadorDetalhePage({
                   consumoLitros: d.consumoLitros,
                   consumoEstimadoLitros: d.consumoEstimadoLitros,
                   cobertura: d.cobertura,
+                  problema: d.problema,
                 }))}
               />
               <p className="text-xs text-muted">
                 Quando a bomba enche a caixa, o nível sobe e o consumo daquele período fica escondido no
                 sinal — ele é estimado pela vazão de saída antes e depois do enchimento. Barras claras =
-                dia com dado incompleto (sensor sem leitura em mais da metade do dia).
+                dia fora das médias: dado incompleto (sensor sem leitura em mais da metade do dia) ou
+                defeito detectado no sensor (saltos impossíveis ou nível parado o dia todo).
               </p>
             </CardContent>
           </Card>
